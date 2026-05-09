@@ -1,0 +1,21 @@
+.claude
+.DS_Store
+.build/
+dist/
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+DerivedData/
+build/
+*.xcworkspace/xcshareddata/swiftpm/Package.resolved
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
