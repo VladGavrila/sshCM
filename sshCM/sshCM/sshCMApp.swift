@@ -11,11 +11,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct sshCMApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var store = ConfigStore()
+    @State private var favorites = FavoritesStore()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(store)
+                .environment(favorites)
                 .onAppear { store.load() }
                 .frame(minWidth: 990, maxWidth: 1320, minHeight: 390)
         }

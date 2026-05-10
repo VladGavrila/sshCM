@@ -1,7 +1,9 @@
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @Environment(ConfigStore.self) private var store
+    @Environment(FavoritesStore.self) private var favorites
 
     @AppStorage("defaultTerminalAppPath") private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
 
@@ -10,9 +12,18 @@ struct ContentView: View {
     @State private var hostPendingDeletion: SSHHost?
     @State private var searchText: String = ""
     @State private var connectError: String?
+    @State private var showingPalette = false
 
     var body: some View {
         baseView
+            .background(
+                Button(action: { showingPalette = true }) { Color.clear }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut("k", modifiers: .command)
+                    .frame(width: 0, height: 0)
+                    .opacity(0)
+                    .accessibilityHidden(true)
+            )
             .sheet(isPresented: $showingAdd) {
                 AddHostSheet()
                     .environment(store)
@@ -20,6 +31,33 @@ struct ContentView: View {
             .sheet(item: $hostBeingEdited) { (host: SSHHost) in
                 AddHostSheet(editing: host)
                     .environment(store)
+            }
+            .sheet(isPresented: $showingPalette) {
+                CommandPaletteView(
+                    hosts: sortedHosts,
+                    onConnect: { host in
+                        showingPalette = false
+                        connect(to: host)
+                    },
+                    onEdit: { host in
+                        showingPalette = false
+                        hostBeingEdited = host
+                    },
+                    onCopy: { host in
+                        if let alias = host.aliases.first, !alias.isEmpty {
+                            let pb = NSPasteboard.general
+                            pb.clearContents()
+                            pb.setString("ssh \(alias)", forType: .string)
+                        }
+                        showingPalette = false
+                    },
+                    onDelete: { host in
+                        showingPalette = false
+                        hostPendingDeletion = host
+                    },
+                    onClose: { showingPalette = false }
+                )
+                .environment(favorites)
             }
             .confirmationDialog(
                 confirmationTitle,
@@ -128,8 +166,11 @@ struct ContentView: View {
     }
 
     private var sortedHosts: [SSHHost] {
-        let sorted = store.file.hosts.sorted {
-            $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+        let sorted = store.file.hosts.sorted { a, b in
+            let aFav = favorites.isFavorite(a.aliases.first ?? "")
+            let bFav = favorites.isFavorite(b.aliases.first ?? "")
+            if aFav != bFav { return aFav }
+            return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
         }
         let query = searchText.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else { return sorted }

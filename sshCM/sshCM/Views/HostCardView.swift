@@ -27,8 +27,18 @@ struct HostCardView: View {
         }
     }
 
+    @Environment(FavoritesStore.self) private var favorites
+
     @State private var reachStatus: ReachStatus = .checking
     @State private var pulsate: Bool = false
+
+    private var favoriteAlias: String? {
+        host.aliases.first.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    private var isFavorite: Bool {
+        favoriteAlias.map { favorites.isFavorite($0) } ?? false
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -54,8 +64,18 @@ struct HostCardView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer()
-                Color.clear
-                    .frame(width: 10, height: 10)
+                Button {
+                    if let alias = favoriteAlias {
+                        favorites.toggle(alias)
+                    }
+                } label: {
+                    Image(systemName: isFavorite ? "star.fill" : "star")
+                        .foregroundStyle(isFavorite ? Color.yellow : Color.secondary)
+                        .frame(width: 14, height: 14)
+                }
+                .buttonStyle(.borderless)
+                .disabled(favoriteAlias == nil)
+                .help(isFavorite ? "Unpin from top" : "Pin to top")
             }
 
             Divider()
