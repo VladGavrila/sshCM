@@ -4,6 +4,7 @@ import AppKit
 struct ContentView: View {
     @Environment(ConfigStore.self) private var store
     @Environment(FavoritesStore.self) private var favorites
+    @Environment(UpdateChecker.self) private var updater
 
     @AppStorage("defaultTerminalAppPath") private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
 
@@ -13,6 +14,7 @@ struct ContentView: View {
     @State private var searchText: String = ""
     @State private var connectError: String?
     @State private var showingPalette = false
+    @State private var presentedRelease: UpdateChecker.Release?
 
     var body: some View {
         baseView
@@ -92,6 +94,70 @@ struct ContentView: View {
             } message: { msg in
                 Text(msg)
             }
+            .sheet(item: $presentedRelease, onDismiss: {
+                if case .downloading = updater.state {
+                    updater.cancelDownload()
+                }
+                updater.dismissTransient()
+            }) { release in
+                @Bindable var binding = updater
+                UpdateAvailableSheet(checker: binding, release: release)
+            }
+            .alert("No update available", isPresented: standaloneInfoBinding) {
+                Button("OK") { updater.dismissTransient() }
+            } message: {
+                Text("sshCM \(updater.currentVersionString) is the latest version.")
+            }
+            .alert("Update check failed", isPresented: standaloneErrorBinding) {
+                Button("OK") { updater.dismissTransient() }
+            } message: {
+                if case .error(let msg) = updater.state {
+                    Text(msg)
+                }
+            }
+            .onChange(of: stateMarker) { _, _ in
+                syncPresentedRelease()
+            }
+            .onAppear { syncPresentedRelease() }
+    }
+
+    private var stateMarker: Int {
+        switch updater.state {
+        case .idle: return 0
+        case .checking: return 1
+        case .upToDate: return 2
+        case .available(let r): return 3 &+ r.tag.hashValue
+        case .downloading: return 4
+        case .installing: return 5
+        case .error(let m): return 6 &+ m.hashValue
+        }
+    }
+
+    private func syncPresentedRelease() {
+        switch updater.state {
+        case .available(let release):
+            if presentedRelease?.tag != release.tag {
+                presentedRelease = release
+            }
+        case .upToDate, .idle:
+            presentedRelease = nil
+        case .checking, .downloading, .installing, .error:
+            break
+        }
+    }
+
+    private var standaloneInfoBinding: Binding<Bool> {
+        Binding(
+            get: { presentedRelease == nil && { if case .upToDate = updater.state { return true }; return false }() },
+            set: { if !$0 { updater.dismissTransient() } }
+        )
+    }
+
+    private var standaloneErrorBinding: Binding<Bool> {
+        Binding(
+            get: { presentedRelease == nil && { if case .error = updater.state { return true }; return false }() },
+            set: { if !$0 { updater.dismissTransient() } }
+        )
     }
 
     private var baseView: some View {
