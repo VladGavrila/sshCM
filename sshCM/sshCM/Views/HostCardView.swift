@@ -1,4 +1,5 @@
 import SwiftUI
+import Network
 
 struct HostCardView: View {
     let host: SSHHost
@@ -6,15 +7,55 @@ struct HostCardView: View {
     let onDelete: () -> Void
     let onConnect: () -> Void
 
+    enum ReachStatus {
+        case checking, reachable, unreachable
+
+        var color: Color {
+            switch self {
+            case .checking: return .orange
+            case .reachable: return .green
+            case .unreachable: return .red
+            }
+        }
+
+        var help: String {
+            switch self {
+            case .checking: return "Checking reachability…"
+            case .reachable: return "Host is reachable"
+            case .unreachable: return "Host is not reachable"
+            }
+        }
+    }
+
+    @State private var reachStatus: ReachStatus = .checking
+    @State private var pulsate: Bool = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
+                Circle()
+                    .fill(reachStatus.color)
+                    .frame(width: 10, height: 10)
+                    .opacity(reachStatus == .checking ? (pulsate ? 0.3 : 1.0) : 1.0)
+                    .animation(
+                        reachStatus == .checking
+                            ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
+                            : .default,
+                        value: pulsate
+                    )
+                    .onAppear { pulsate = reachStatus == .checking }
+                    .onChange(of: reachStatus) { _, newValue in
+                        pulsate = newValue == .checking
+                    }
+                    .help(reachStatus.help)
                 Spacer()
                 Text(host.title)
                     .font(.headline)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer()
+                Color.clear
+                    .frame(width: 10, height: 10)
             }
 
             Divider()
@@ -41,7 +82,7 @@ struct HostCardView: View {
                         .foregroundStyle(.secondary)
                         .help(v)
                 }
-                if let p = host.port {
+                if let p = host.port, p != 22 {
                     Image(systemName: "number")
                         .foregroundStyle(.secondary)
                         .help(String(p))
@@ -76,6 +117,74 @@ struct HostCardView: View {
                 .strokeBorder(.separator, lineWidth: 0.5)
         )
         .padding(15)
+        .task(id: reachabilityKey) {
+            await runReachabilityCheck()
+        }
+    }
+
+    private var reachabilityKey: String {
+        "\(host.hostName ?? host.aliases.first ?? "")|\(host.port ?? 22)"
+    }
+
+    private func runReachabilityCheck() async {
+        let candidates = [host.hostName, host.aliases.first]
+        let target = candidates
+            .compactMap { $0?.trimmingCharacters(in: CharacterSet.whitespaces) }
+            .first { !$0.isEmpty }
+        guard let target else {
+            reachStatus = .unreachable
+            return
+        }
+        let port = host.port ?? 22
+
+        reachStatus = .checking
+
+        let success = await Self.probe(host: target, port: port)
+        guard !Task.isCancelled else { return }
+        reachStatus = success ? .reachable : .unreachable
+    }
+
+    private static func probe(host: String, port: Int, timeout: TimeInterval = 5.0) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            guard let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
+                continuation.resume(returning: false)
+                return
+            }
+            let conn = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .tcp)
+            let state = ProbeState()
+            @Sendable func finish(_ value: Bool) {
+                guard state.markDone() else { return }
+                conn.cancel()
+                continuation.resume(returning: value)
+            }
+            conn.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    finish(true)
+                case .failed, .cancelled, .waiting:
+                    finish(false)
+                default:
+                    break
+                }
+            }
+            conn.start(queue: .global(qos: .utility))
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) {
+                finish(false)
+            }
+        }
+    }
+
+    private final class ProbeState: @unchecked Sendable {
+        private let lock = NSLock()
+        nonisolated(unsafe) private var done = false
+
+        nonisolated func markDone() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            if done { return false }
+            done = true
+            return true
+        }
     }
 
     private func row(symbol: String, value: String) -> some View {

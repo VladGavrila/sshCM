@@ -12,94 +12,79 @@ struct ContentView: View {
     @State private var connectError: String?
 
     var body: some View {
-        GeometryReader { proxy in
-            let columnCount = max(1, Int(proxy.size.width / 330))
-            let columns = Array(
-                repeating: GridItem(.fixed(330), spacing: 0),
-                count: columnCount
-            )
-            ScrollView(.vertical) {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 0) {
-                    ForEach(sortedHosts) { host in
-                        HostCardView(
-                            host: host,
-                            onEdit: { hostBeingEdited = host },
-                            onDelete: { hostPendingDeletion = host },
-                            onConnect: { connect(to: host) }
-                        )
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .top)
+        baseView
+            .sheet(isPresented: $showingAdd) {
+                AddHostSheet()
+                    .environment(store)
             }
-        }
-        .frame(minWidth: 990, maxWidth: 1320, minHeight: 320)
-        .navigationTitle("SSH Config Manager")
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    store.load()
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+            .sheet(item: $hostBeingEdited) { (host: SSHHost) in
+                AddHostSheet(editing: host)
+                    .environment(store)
+            }
+            .confirmationDialog(
+                confirmationTitle,
+                isPresented: deletionBinding,
+                presenting: hostPendingDeletion
+            ) { host in
+                Button("Remove \"\(host.title)\"", role: .destructive) {
+                    store.remove(id: host.id)
+                    hostPendingDeletion = nil
                 }
-                .help("Reload ~/.ssh/config")
+                Button("Cancel", role: .cancel) {
+                    hostPendingDeletion = nil
+                }
+            } message: { _ in
+                Text("This will remove the host from ~/.ssh/config.")
+            }
+            .alert(
+                "Error",
+                isPresented: errorBinding,
+                presenting: store.loadError
+            ) { _ in
+                Button("OK") { store.loadError = nil }
+            } message: { msg in
+                Text(msg)
+            }
+            .alert(
+                "Could not open terminal",
+                isPresented: connectErrorBinding,
+                presenting: connectError
+            ) { _ in
+                Button("OK") { connectError = nil }
+            } message: { msg in
+                Text(msg)
+            }
+    }
 
-                Button {
-                    showingAdd = true
-                } label: {
-                    Label("Add Host", systemImage: "plus")
+    private var baseView: some View {
+        hostGrid
+            .frame(minWidth: 990, maxWidth: 1320, minHeight: 320)
+            .navigationTitle("SSH Config Manager")
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        store.load()
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                    .help("Reload ~/.ssh/config")
+
+                    Button {
+                        showingAdd = true
+                    } label: {
+                        Label("Add Host", systemImage: "plus")
+                    }
+                    .help("Add a new host")
                 }
-                .help("Add a new host")
             }
-        }
-        .searchable(text: $searchText, prompt: "Filter hosts")
-        .sheet(isPresented: $showingAdd) {
-            AddHostSheet()
-                .environment(store)
-        }
-        .sheet(item: $hostBeingEdited) { host in
-            AddHostSheet(editing: host)
-                .environment(store)
-        }
-        .confirmationDialog(
-            confirmationTitle,
-            isPresented: deletionBinding,
-            presenting: hostPendingDeletion
-        ) { host in
-            Button("Remove \"\(host.title)\"", role: .destructive) {
-                store.remove(id: host.id)
-                hostPendingDeletion = nil
+            .searchable(text: $searchText, prompt: "Filter hosts")
+            .overlay(alignment: .center) {
+                if store.file.hosts.isEmpty {
+                    emptyState
+                } else if sortedHosts.isEmpty {
+                    noMatchesState
+                }
             }
-            Button("Cancel", role: .cancel) {
-                hostPendingDeletion = nil
-            }
-        } message: { host in
-            Text("This will remove the host from ~/.ssh/config.")
-        }
-        .overlay(alignment: .center) {
-            if store.file.hosts.isEmpty {
-                emptyState
-            } else if sortedHosts.isEmpty {
-                noMatchesState
-            }
-        }
-        .alert(
-            "Error",
-            isPresented: errorBinding,
-            presenting: store.loadError
-        ) { _ in
-            Button("OK") { store.loadError = nil }
-        } message: { msg in
-            Text(msg)
-        }
-        .alert(
-            "Could not open terminal",
-            isPresented: connectErrorBinding,
-            presenting: connectError
-        ) { _ in
-            Button("OK") { connectError = nil }
-        } message: { msg in
-            Text(msg)
-        }
     }
 
     private func connect(to host: SSHHost) {
@@ -160,6 +145,26 @@ struct ContentView: View {
             return haystacks.contains { value in
                 guard let value, !value.isEmpty else { return false }
                 return value.localizedCaseInsensitiveContains(query)
+            }
+        }
+    }
+
+    private var hostGrid: some View {
+        GeometryReader { proxy in
+            let columnCount = max(1, Int(proxy.size.width / 330))
+            let columns = Array(repeating: GridItem(.fixed(330), spacing: 0), count: columnCount)
+            ScrollView(.vertical) {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 0) {
+                    ForEach(sortedHosts) { host in
+                        HostCardView(
+                            host: host,
+                            onEdit: { hostBeingEdited = host },
+                            onDelete: { hostPendingDeletion = host },
+                            onConnect: { connect(to: host) }
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .top)
             }
         }
     }
