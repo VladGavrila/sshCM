@@ -15,9 +15,16 @@ struct UpdateAvailableSheet: View {
             }
             Divider()
             ScrollView {
-                Text(LocalizedStringKey(release.notes.isEmpty ? "_No release notes provided._" : release.notes))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+                Group {
+                    if release.notes.isEmpty {
+                        Text("No release notes provided.")
+                            .italic()
+                            .foregroundStyle(.secondary)
+                    } else {
+                        MarkdownView(text: release.notes)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: .infinity)
             Divider()

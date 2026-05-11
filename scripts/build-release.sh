@@ -9,8 +9,8 @@
 #   NOTARIZE_APP_PASSWORD      - App-specific password
 #
 # Optional:
-#   BUNDLE_VERSION             - CFBundleVersion (default: 1)
-#   BUNDLE_SHORT_VERSION       - CFBundleShortVersionString (default: 1.0.0)
+#   BUNDLE_VERSION             - CFBundleVersion (default: project's CURRENT_PROJECT_VERSION)
+#   BUNDLE_SHORT_VERSION       - CFBundleShortVersionString (default: project's MARKETING_VERSION)
 #   TEAM_ID                    - Override DEVELOPMENT_TEAM for signing (default: 2RZL73M634)
 
 set -euo pipefail
@@ -28,9 +28,15 @@ ARCHIVE_PATH="$REPO_ROOT/.build/${APP_NAME}.xcarchive"
 EXPORT_DIR="$REPO_ROOT/dist"
 APP_DIR="$EXPORT_DIR/${APP_NAME}.app"
 
-BUNDLE_VERSION="${BUNDLE_VERSION:-1}"
-BUNDLE_SHORT_VERSION="${BUNDLE_SHORT_VERSION:-1.0.0}"
 TEAM_ID="${TEAM_ID:-2RZL73M634}"
+
+VERSION_ARGS=()
+if [[ -n "${BUNDLE_SHORT_VERSION:-}" ]]; then
+    VERSION_ARGS+=(MARKETING_VERSION="$BUNDLE_SHORT_VERSION")
+fi
+if [[ -n "${BUNDLE_VERSION:-}" ]]; then
+    VERSION_ARGS+=(CURRENT_PROJECT_VERSION="$BUNDLE_VERSION")
+fi
 
 # xcodebuild needs a full Xcode, not just Command Line Tools. If the active
 # developer dir is CLT, fall back to /Applications/Xcode.app when present.
@@ -110,9 +116,8 @@ xcodebuild \
     -destination "generic/platform=macOS" \
     -derivedDataPath "$DERIVED_DATA" \
     -archivePath "$ARCHIVE_PATH" \
-    MARKETING_VERSION="$BUNDLE_SHORT_VERSION" \
-    CURRENT_PROJECT_VERSION="$BUNDLE_VERSION" \
-    "${SIGN_ARGS[@]}" \
+    ${VERSION_ARGS[@]+"${VERSION_ARGS[@]}"} \
+    ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} \
     archive
 
 echo "==> Exporting app bundle..."
