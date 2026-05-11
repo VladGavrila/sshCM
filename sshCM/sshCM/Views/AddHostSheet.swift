@@ -5,6 +5,7 @@ struct AddHostSheet: View {
     @Environment(ConfigStore.self) private var store
 
     let editing: SSHHost?
+    var onAdded: ((SSHHost) -> Void)?
 
     @State private var alias: String
     @State private var hostName: String
@@ -14,8 +15,9 @@ struct AddHostSheet: View {
     @State private var identityFile: String
     @State private var proxyJump: String
 
-    init(editing: SSHHost? = nil) {
+    init(editing: SSHHost? = nil, onAdded: ((SSHHost) -> Void)? = nil) {
         self.editing = editing
+        self.onAdded = onAdded
         let initialAlias = editing?.aliases.joined(separator: " ") ?? ""
         let initialHostName = editing?.hostName ?? ""
         let initialUser = editing?.user ?? ""
@@ -143,6 +145,7 @@ struct AddHostSheet: View {
                 proxyJump: proxyJump.trimmed.nilIfEmpty
             )
             store.add(host)
+            onAdded?(host)
         }
         dismiss()
     }

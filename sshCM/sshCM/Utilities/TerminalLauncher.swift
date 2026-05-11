@@ -10,7 +10,16 @@ enum TerminalLauncher {
             throw TerminalLaunchError.invalidAlias
         }
 
-        let scriptURL = try writeTempScript(for: trimmedAlias)
+        let escaped = trimmedAlias.replacingOccurrences(of: "'", with: "'\\''")
+        try runScript("clear\nexec ssh '\(escaped)'", terminalAppPath: terminalAppPath)
+    }
+
+    static func launchCommand(_ command: String, terminalAppPath: String) throws {
+        try runScript("clear\n\(command)", terminalAppPath: terminalAppPath)
+    }
+
+    private static func runScript(_ body: String, terminalAppPath: String) throws {
+        let scriptURL = try writeTempScript(body: body)
         let resolvedAppPath = terminalAppPath.isEmpty ? defaultTerminalAppPath : terminalAppPath
         let appURL = URL(fileURLWithPath: resolvedAppPath)
 
@@ -32,17 +41,15 @@ enum TerminalLauncher {
         }
     }
 
-    private static func writeTempScript(for alias: String) throws -> URL {
-        let escaped = alias.replacingOccurrences(of: "'", with: "'\\''")
-        let body = """
+    private static func writeTempScript(body: String) throws -> URL {
+        let script = """
         #!/bin/bash
-        clear
-        exec ssh '\(escaped)'
+        \(body)
         """
 
         let dir = FileManager.default.temporaryDirectory
         let url = dir.appendingPathComponent("sshcm-\(UUID().uuidString).command")
-        try body.data(using: .utf8)?.write(to: url, options: .atomic)
+        try script.data(using: .utf8)?.write(to: url, options: .atomic)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755],
             ofItemAtPath: url.path

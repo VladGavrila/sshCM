@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var showingAdd = false
     @State private var hostBeingEdited: SSHHost?
     @State private var hostPendingDeletion: SSHHost?
+    @State private var hostPendingKeySeed: SSHHost?
     @State private var searchText: String = ""
     @State private var connectError: String?
     @State private var showingPalette = false
@@ -27,8 +28,13 @@ struct ContentView: View {
                     .accessibilityHidden(true)
             )
             .sheet(isPresented: $showingAdd) {
-                AddHostSheet()
-                    .environment(store)
+                AddHostSheet(onAdded: { host in
+                    Task { await considerKeySeed(for: host) }
+                })
+                .environment(store)
+            }
+            .sheet(item: $hostPendingKeySeed) { (host: SSHHost) in
+                SeedKeySheet(host: host)
             }
             .sheet(item: $hostBeingEdited) { (host: SSHHost) in
                 AddHostSheet(editing: host)
@@ -189,6 +195,16 @@ struct ContentView: View {
                     noMatchesState
                 }
             }
+    }
+
+    private func considerKeySeed(for host: SSHHost) async {
+        let target = [host.hostName, host.aliases.first]
+            .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty }
+        guard let target else { return }
+        let port = host.port ?? 22
+        guard await Reachability.probe(host: target, port: port) else { return }
+        hostPendingKeySeed = host
     }
 
     private func connect(to host: SSHHost) {
