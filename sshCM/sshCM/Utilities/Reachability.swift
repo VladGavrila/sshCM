@@ -19,7 +19,7 @@ enum Reachability {
                 switch state {
                 case .ready:
                     finish(true)
-                case .failed, .cancelled, .waiting:
+                case .failed, .cancelled:
                     finish(false)
                 default:
                     break
