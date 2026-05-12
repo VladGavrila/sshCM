@@ -3,6 +3,7 @@ import SwiftUI
 struct AddHostSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ConfigStore.self) private var store
+    @Environment(TagsStore.self) private var tagsStore
 
     let editing: SSHHost?
     var onAdded: ((SSHHost) -> Void)?
@@ -14,6 +15,8 @@ struct AddHostSheet: View {
     @State private var showAdvanced: Bool
     @State private var identityFile: String
     @State private var proxyJump: String
+    @State private var tag: HostTag?
+    @State private var showTagPicker: Bool = false
 
     init(editing: SSHHost? = nil, onAdded: ((SSHHost) -> Void)? = nil) {
         self.editing = editing
@@ -69,7 +72,10 @@ struct AddHostSheet: View {
         VStack(spacing: 0) {
             Form {
                 Section("Host") {
-                    TextField("Alias", text: $alias, prompt: Text("e.g. prod-bastion"))
+                    HStack(spacing: 8) {
+                        TextField("Alias", text: $alias, prompt: Text("e.g. prod-bastion"))
+                        tagButton
+                    }
                     TextField("HostName (IP or FQDN)", text: $hostName, prompt: Text("e.g. 10.0.0.4 or db.example.com"))
                     TextField("User", text: $user, prompt: Text("e.g. ubuntu"))
                     TextField("Port", text: $portText)
@@ -121,11 +127,35 @@ struct AddHostSheet: View {
         }
         .frame(minWidth: 460, minHeight: 300)
         .animation(.easeInOut(duration: 0.25), value: showAdvanced)
+        .onAppear(perform: loadExistingTag)
+    }
+
+    private var tagButton: some View {
+        Button {
+            showTagPicker.toggle()
+        } label: {
+            Image(systemName: tag == nil ? "tag" : "tag.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(tag?.color ?? Color.secondary)
+                .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.borderless)
+        .help(tag.map { "Tag: \(tagsStore.displayName(for: $0))" } ?? "Assign a tag")
+        .popover(isPresented: $showTagPicker, arrowEdge: .bottom) {
+            TagPickerPopover(selection: $tag)
+                .environment(tagsStore)
+        }
+    }
+
+    private func loadExistingTag() {
+        guard let alias = editing?.aliases.first, !alias.isEmpty else { return }
+        tag = tagsStore.tag(for: alias)
     }
 
     private func save() {
         let aliases = alias.trimmed.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
         guard !aliases.isEmpty else { return }
+        let primaryAlias = aliases[0]
         if let original = editing {
             var updated = original
             updated.aliases = aliases
@@ -135,6 +165,9 @@ struct AddHostSheet: View {
             updated.identityFile = identityFile.trimmed.nilIfEmpty
             updated.proxyJump = proxyJump.trimmed.nilIfEmpty
             store.update(updated)
+            if let oldAlias = original.aliases.first, oldAlias != primaryAlias {
+                tagsStore.remove(alias: oldAlias)
+            }
         } else {
             let host = SSHHost(
                 aliases: aliases,
@@ -147,6 +180,7 @@ struct AddHostSheet: View {
             store.add(host)
             onAdded?(host)
         }
+        tagsStore.set(tag, for: primaryAlias)
         dismiss()
     }
 }

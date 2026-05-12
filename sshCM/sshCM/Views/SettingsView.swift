@@ -4,9 +4,13 @@ import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Environment(UpdateChecker.self) private var updater
+    @Environment(TagsStore.self) private var tagsStore
 
     @AppStorage("defaultTerminalAppPath") private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
     @AppStorage("autoCheckForUpdates") private var autoCheck: Bool = true
+
+    @State private var dropTargetTag: HostTag?
+    @State private var draggingTag: HostTag?
 
     var body: some View {
         Form {
@@ -28,6 +32,25 @@ struct SettingsView: View {
                     .truncationMode(.middle)
             }
 
+            Section {
+                ForEach(Array(tagsStore.tagOrder.enumerated()), id: \.element) { index, tag in
+                    tagOrderRow(tag: tag, isLast: index == tagsStore.tagOrder.count - 1)
+                }
+                endDropZone
+                HStack {
+                    Spacer()
+                    Button("Reset to Default") {
+                        tagsStore.resetOrder()
+                    }
+                }
+            } header: {
+                Text("Host Tag Sort Order")
+            } footer: {
+                Text("Drag the rows to reorder. Host cards are grouped by tag color in this order. Favorites always appear first; untagged hosts last.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Updates") {
                 Toggle("Automatically check for updates", isOn: $autoCheck)
                     .onChange(of: autoCheck) { _, newValue in
@@ -45,9 +68,88 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 360)
+        .frame(width: 520, height: 620)
         .onAppear {
             autoCheck = updater.autoCheckForUpdates
+        }
+    }
+
+    @State private var endDropTargeted: Bool = false
+
+    private func nameBinding(for tag: HostTag) -> Binding<String> {
+        Binding(
+            get: { tagsStore.customName(for: tag) ?? "" },
+            set: { tagsStore.rename(tag: tag, to: $0) }
+        )
+    }
+
+    private var endDropZone: some View {
+        Rectangle()
+            .fill(endDropTargeted ? Color.accentColor.opacity(0.25) : Color.clear)
+            .frame(height: 8)
+            .contentShape(Rectangle())
+            .dropDestination(for: HostTag.self) { items, _ in
+                endDropTargeted = false
+                draggingTag = nil
+                guard let source = items.first else { return false }
+                tagsStore.moveToEnd(tag: source)
+                return true
+            } isTargeted: { value in
+                endDropTargeted = value
+            }
+    }
+
+    @ViewBuilder
+    private func tagOrderRow(tag: HostTag, isLast: Bool) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(.secondary)
+                .help("Drag to reorder")
+            Circle()
+                .fill(tag.color)
+                .frame(width: 16, height: 16)
+                .overlay(
+                    Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+                )
+                .help(tag.displayName)
+            TextField(
+                tag.displayName,
+                text: nameBinding(for: tag),
+                prompt: Text(tag.displayName)
+            )
+            .textFieldStyle(.roundedBorder)
+            .frame(maxWidth: 220)
+            Spacer(minLength: 4)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .opacity(draggingTag == tag ? 0.4 : 1.0)
+        .overlay(alignment: .top) {
+            if dropTargetTag == tag {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+            }
+        }
+        .draggable(tag) {
+            HStack(spacing: 6) {
+                Circle().fill(tag.color).frame(width: 14, height: 14)
+                Text(tag.displayName).font(.callout)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+            .onAppear { draggingTag = tag }
+            .onDisappear { draggingTag = nil }
+        }
+        .dropDestination(for: HostTag.self) { items, _ in
+            dropTargetTag = nil
+            draggingTag = nil
+            guard let source = items.first else { return false }
+            tagsStore.move(tag: source, before: tag)
+            return true
+        } isTargeted: { isTargeted in
+            dropTargetTag = isTargeted ? tag : (dropTargetTag == tag ? nil : dropTargetTag)
         }
     }
 
@@ -89,4 +191,5 @@ struct SettingsView: View {
 #Preview {
     SettingsView()
         .environment(UpdateChecker())
+        .environment(TagsStore())
 }

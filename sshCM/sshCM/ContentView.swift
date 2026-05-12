@@ -4,6 +4,8 @@ import AppKit
 struct ContentView: View {
     @Environment(ConfigStore.self) private var store
     @Environment(FavoritesStore.self) private var favorites
+    @Environment(TagsStore.self) private var tagsStore
+    @Environment(ReachabilityCache.self) private var reachCache
     @Environment(UpdateChecker.self) private var updater
 
     @AppStorage("defaultTerminalAppPath") private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
@@ -32,6 +34,7 @@ struct ContentView: View {
                     Task { await considerKeySeed(for: host) }
                 })
                 .environment(store)
+                .environment(tagsStore)
             }
             .sheet(item: $hostPendingKeySeed) { (host: SSHHost) in
                 SeedKeySheet(host: host)
@@ -39,6 +42,7 @@ struct ContentView: View {
             .sheet(item: $hostBeingEdited) { (host: SSHHost) in
                 AddHostSheet(editing: host)
                     .environment(store)
+                    .environment(tagsStore)
             }
             .sheet(isPresented: $showingPalette) {
                 CommandPaletteView(
@@ -66,6 +70,7 @@ struct ContentView: View {
                     onClose: { showingPalette = false }
                 )
                 .environment(favorites)
+                .environment(tagsStore)
             }
             .confirmationDialog(
                 confirmationTitle,
@@ -73,6 +78,9 @@ struct ContentView: View {
                 presenting: hostPendingDeletion
             ) { host in
                 Button("Remove \"\(host.title)\"", role: .destructive) {
+                    if let alias = host.aliases.first {
+                        tagsStore.remove(alias: alias)
+                    }
                     store.remove(id: host.id)
                     hostPendingDeletion = nil
                 }
@@ -173,11 +181,12 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {
+                        reachCache.clear()
                         store.load()
                     } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }
-                    .help("Reload ~/.ssh/config")
+                    .help("Reload ~/.ssh/config and re-check reachability")
 
                     Button {
                         showingAdd = true
@@ -248,22 +257,36 @@ struct ContentView: View {
     }
 
     private var sortedHosts: [SSHHost] {
+        let untaggedRank = HostTag.allCases.count
+
         let sorted = store.file.hosts.sorted { a, b in
-            let aFav = favorites.isFavorite(a.aliases.first ?? "")
-            let bFav = favorites.isFavorite(b.aliases.first ?? "")
+            let aAlias = a.aliases.first ?? ""
+            let bAlias = b.aliases.first ?? ""
+
+            let aFav = favorites.isFavorite(aAlias)
+            let bFav = favorites.isFavorite(bAlias)
             if aFav != bFav { return aFav }
+
+            let aTagRank = tagsStore.tag(for: aAlias).map { tagsStore.rank(for: $0) } ?? untaggedRank
+            let bTagRank = tagsStore.tag(for: bAlias).map { tagsStore.rank(for: $0) } ?? untaggedRank
+            if aTagRank != bTagRank { return aTagRank < bTagRank }
+
             return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
         }
         let query = searchText.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else { return sorted }
         return sorted.filter { host in
+            let tagName = host.aliases.first
+                .flatMap { tagsStore.tag(for: $0) }
+                .map { tagsStore.displayName(for: $0) }
             let haystacks: [String?] = [
                 host.title,
                 host.hostName,
                 host.user,
                 host.identityFile,
                 host.proxyJump,
-                host.port.map(String.init)
+                host.port.map(String.init),
+                tagName
             ]
             return haystacks.contains { value in
                 guard let value, !value.isEmpty else { return false }

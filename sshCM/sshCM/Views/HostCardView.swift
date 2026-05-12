@@ -6,27 +6,9 @@ struct HostCardView: View {
     let onDelete: () -> Void
     let onConnect: () -> Void
 
-    enum ReachStatus {
-        case checking, reachable, unreachable
-
-        var color: Color {
-            switch self {
-            case .checking: return .orange
-            case .reachable: return .green
-            case .unreachable: return .red
-            }
-        }
-
-        var help: String {
-            switch self {
-            case .checking: return "Checking reachability…"
-            case .reachable: return "Host is reachable"
-            case .unreachable: return "Host is not reachable"
-            }
-        }
-    }
-
     @Environment(FavoritesStore.self) private var favorites
+    @Environment(TagsStore.self) private var tagsStore
+    @Environment(ReachabilityCache.self) private var reachCache
 
     @State private var reachStatus: ReachStatus = .checking
     @State private var pulsate: Bool = false
@@ -39,43 +21,13 @@ struct HostCardView: View {
         favoriteAlias.map { favorites.isFavorite($0) } ?? false
     }
 
+    private var hostTag: HostTag? {
+        favoriteAlias.flatMap { tagsStore.tag(for: $0) }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Circle()
-                    .fill(reachStatus.color)
-                    .frame(width: 10, height: 10)
-                    .opacity(reachStatus == .checking ? (pulsate ? 0.3 : 1.0) : 1.0)
-                    .animation(
-                        reachStatus == .checking
-                            ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
-                            : .default,
-                        value: pulsate
-                    )
-                    .onAppear { pulsate = reachStatus == .checking }
-                    .onChange(of: reachStatus) { _, newValue in
-                        pulsate = newValue == .checking
-                    }
-                    .help(reachStatus.help)
-                Spacer()
-                Text(host.title)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer()
-                Button {
-                    if let alias = favoriteAlias {
-                        favorites.toggle(alias)
-                    }
-                } label: {
-                    Image(systemName: isFavorite ? "star.fill" : "star")
-                        .foregroundStyle(isFavorite ? Color.yellow : Color.secondary)
-                        .frame(width: 14, height: 14)
-                }
-                .buttonStyle(.borderless)
-                .disabled(favoriteAlias == nil)
-                .help(isFavorite ? "Unpin from top" : "Pin to top")
-            }
+            header
 
             Divider()
 
@@ -135,6 +87,10 @@ struct HostCardView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(.separator, lineWidth: 0.5)
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(hostTag?.color ?? Color.clear, lineWidth: 2)
+        )
         .padding(15)
         .task(id: reachabilityKey) {
             await runReachabilityCheck()
@@ -142,7 +98,7 @@ struct HostCardView: View {
     }
 
     private var reachabilityKey: String {
-        "\(host.hostName ?? host.aliases.first ?? "")|\(host.port ?? 22)"
+        "\(host.hostName ?? host.aliases.first ?? "")|\(host.port ?? 22)|\(reachCache.epoch)"
     }
 
     private func runReachabilityCheck() async {
@@ -155,12 +111,67 @@ struct HostCardView: View {
             return
         }
         let port = host.port ?? 22
+        let cacheKey = "\(target):\(port)"
+
+        if let cached = reachCache.status(for: cacheKey), cached != .checking {
+            reachStatus = cached
+            return
+        }
 
         reachStatus = .checking
+        reachCache.set(.checking, for: cacheKey)
 
         let success = await Reachability.probe(host: target, port: port)
         guard !Task.isCancelled else { return }
-        reachStatus = success ? .reachable : .unreachable
+        let result: ReachStatus = success ? .reachable : .unreachable
+        reachStatus = result
+        reachCache.set(result, for: cacheKey)
+    }
+
+    private var header: some View {
+        HStack {
+            reachIndicator
+            Spacer()
+            Text(host.title)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer()
+            favoriteButton
+        }
+    }
+
+    private var reachIndicator: some View {
+        Circle()
+            .fill(reachStatus.color)
+            .frame(width: 10, height: 10)
+            .opacity(reachStatus == .checking ? (pulsate ? 0.3 : 1.0) : 1.0)
+            .animation(
+                reachStatus == .checking
+                    ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
+                    : .default,
+                value: pulsate
+            )
+            .onAppear { pulsate = reachStatus == .checking }
+            .onChange(of: reachStatus) { _, newValue in
+                pulsate = newValue == .checking
+            }
+            .help(reachStatus.help)
+    }
+
+    private var favoriteButton: some View {
+        Button {
+            if let alias = favoriteAlias {
+                favorites.toggle(alias)
+            }
+        } label: {
+            Image(systemName: isFavorite ? "star.fill" : "star")
+                .foregroundStyle(isFavorite ? Color.yellow : Color.secondary)
+                .frame(width: 14, height: 14)
+        }
+        .buttonStyle(.borderless)
+        .disabled(favoriteAlias == nil)
+        .help(isFavorite ? "Unpin from top" : "Pin to top")
     }
 
     private func row(symbol: String, value: String) -> some View {

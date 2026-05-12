@@ -9,6 +9,7 @@ struct CommandPaletteView: View {
     let onClose: () -> Void
 
     @Environment(FavoritesStore.self) private var favorites
+    @Environment(TagsStore.self) private var tagsStore
 
     @State private var query: String = ""
     @State private var selectedIndex: Int = 0
@@ -216,9 +217,12 @@ struct CommandPaletteView: View {
             if alias.contains(q) { return 100 }
         }
 
+        let tagName = host.aliases.first
+            .flatMap { tagsStore.tag(for: $0) }
+            .map { tagsStore.displayName(for: $0) }
         let others: [String?] = [
             host.title, host.hostName, host.user, host.identityFile, host.proxyJump,
-            host.port.map(String.init)
+            host.port.map(String.init), tagName
         ]
         for value in others.compactMap({ $0?.lowercased() }) where !value.isEmpty {
             if value.contains(q) { return 10 }
