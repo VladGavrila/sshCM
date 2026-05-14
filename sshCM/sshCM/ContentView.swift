@@ -7,6 +7,7 @@ struct ContentView: View {
     @Environment(TagsStore.self) private var tagsStore
     @Environment(ReachabilityCache.self) private var reachCache
     @Environment(UpdateChecker.self) private var updater
+    @Environment(PaletteBridge.self) private var paletteBridge
 
     @AppStorage("defaultTerminalAppPath") private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
 
@@ -16,13 +17,12 @@ struct ContentView: View {
     @State private var hostPendingKeySeed: SSHHost?
     @State private var searchText: String = ""
     @State private var connectError: String?
-    @State private var showingPalette = false
     @State private var presentedRelease: UpdateChecker.Release?
 
     var body: some View {
         baseView
             .background(
-                Button(action: { showingPalette = true }) { Color.clear }
+                Button(action: { CommandPaletteController.shared.toggle() }) { Color.clear }
                     .buttonStyle(.plain)
                     .keyboardShortcut("k", modifiers: .command)
                     .frame(width: 0, height: 0)
@@ -43,34 +43,6 @@ struct ContentView: View {
                 AddHostSheet(editing: host)
                     .environment(store)
                     .environment(tagsStore)
-            }
-            .sheet(isPresented: $showingPalette) {
-                CommandPaletteView(
-                    hosts: sortedHosts,
-                    onConnect: { host in
-                        showingPalette = false
-                        connect(to: host)
-                    },
-                    onEdit: { host in
-                        showingPalette = false
-                        hostBeingEdited = host
-                    },
-                    onCopy: { host in
-                        if let alias = host.aliases.first, !alias.isEmpty {
-                            let pb = NSPasteboard.general
-                            pb.clearContents()
-                            pb.setString("ssh \(alias)", forType: .string)
-                        }
-                        showingPalette = false
-                    },
-                    onDelete: { host in
-                        showingPalette = false
-                        hostPendingDeletion = host
-                    },
-                    onClose: { showingPalette = false }
-                )
-                .environment(favorites)
-                .environment(tagsStore)
             }
             .confirmationDialog(
                 confirmationTitle,
@@ -132,7 +104,20 @@ struct ContentView: View {
             .onChange(of: stateMarker) { _, _ in
                 syncPresentedRelease()
             }
-            .onAppear { syncPresentedRelease() }
+            .onAppear {
+                syncPresentedRelease()
+                drainPaletteBridge()
+            }
+            .onChange(of: paletteBridge.pendingEdit) { _, newValue in
+                guard let host = newValue else { return }
+                hostBeingEdited = host
+                paletteBridge.pendingEdit = nil
+            }
+            .onChange(of: paletteBridge.pendingDelete) { _, newValue in
+                guard let host = newValue else { return }
+                hostPendingDeletion = host
+                paletteBridge.pendingDelete = nil
+            }
     }
 
     private var stateMarker: Int {
@@ -144,6 +129,17 @@ struct ContentView: View {
         case .downloading: return 4
         case .installing: return 5
         case .error(let m): return 6 &+ m.hashValue
+        }
+    }
+
+    private func drainPaletteBridge() {
+        if let host = paletteBridge.pendingEdit {
+            hostBeingEdited = host
+            paletteBridge.pendingEdit = nil
+        }
+        if let host = paletteBridge.pendingDelete {
+            hostPendingDeletion = host
+            paletteBridge.pendingDelete = nil
         }
     }
 

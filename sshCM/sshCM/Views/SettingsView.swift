@@ -8,6 +8,8 @@ struct SettingsView: View {
 
     @AppStorage("defaultTerminalAppPath") private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
     @AppStorage("autoCheckForUpdates") private var autoCheck: Bool = true
+    @AppStorage(KeyShortcut.StorageKey.enabled) private var hotKeyEnabled: Bool = true
+    @AppStorage(AppPresentation.storageKey) private var presentationRaw: String = AppPresentation.dock.rawValue
 
     @State private var dropTargetTag: HostTag?
     @State private var draggingTag: HostTag?
@@ -51,6 +53,41 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section {
+                Picker("Show sshCM as", selection: $presentationRaw) {
+                    ForEach(AppPresentation.allCases) { option in
+                        Text(option.label).tag(option.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: presentationRaw) { _, newValue in
+                    let presentation = AppPresentation(rawValue: newValue) ?? .dock
+                    NSApp.setActivationPolicy(presentation.activationPolicy)
+                    if presentation == .dock {
+                        NSApp.activate(ignoringOtherApps: true)
+                    }
+                }
+            } header: {
+                Text("App Presentation")
+            } footer: {
+                Text("Menu bar mode hides the Dock icon and shows a status item in the menu bar. The app's menu bar (File/Edit/View) is hidden in this mode; use the status item or the global hotkey to access actions.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Enable global hotkey", isOn: $hotKeyEnabled)
+                LabeledContent("Open Command Palette") {
+                    ShortcutRecorderView()
+                }
+            } header: {
+                Text("Global Hotkey")
+            } footer: {
+                Text("System-wide shortcut to open the Command Palette while sshCM is running.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Updates") {
                 Toggle("Automatically check for updates", isOn: $autoCheck)
                     .onChange(of: autoCheck) { _, newValue in
@@ -68,7 +105,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 620)
+        .frame(width: 520, height: 720)
         .onAppear {
             autoCheck = updater.autoCheckForUpdates
         }
