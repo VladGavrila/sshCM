@@ -114,6 +114,10 @@ struct ContentView: View {
                 MainWindowOpener.open = { open(id: "main") }
                 let openSettingsAction = openSettings
                 SettingsOpener.open = { openSettingsAction() }
+                let checker = updater
+                UpdateCheckTrigger.trigger = {
+                    Task { await checker.check(userInitiated: true) }
+                }
             }
             .onChange(of: paletteBridge.pendingEdit) { _, newValue in
                 guard let host = newValue else { return }

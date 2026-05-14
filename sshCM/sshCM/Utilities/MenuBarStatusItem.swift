@@ -11,6 +11,11 @@ enum SettingsOpener {
 }
 
 @MainActor
+enum UpdateCheckTrigger {
+    static var trigger: (() -> Void)?
+}
+
+@MainActor
 final class MenuBarStatusItem: NSObject {
     static let shared = MenuBarStatusItem()
 
@@ -68,6 +73,14 @@ final class MenuBarStatusItem: NSObject {
 
         menu.addItem(.separator())
 
+        let checkUpdate = NSMenuItem(
+            title: "Check for Updates…",
+            action: #selector(checkForUpdates(_:)),
+            keyEquivalent: ""
+        )
+        checkUpdate.target = self
+        menu.addItem(checkUpdate)
+
         let settings = NSMenuItem(
             title: "Settings…",
             action: #selector(openSettings(_:)),
@@ -110,5 +123,21 @@ final class MenuBarStatusItem: NSObject {
     @objc private func openSettings(_ sender: Any?) {
         NSApp.activate(ignoringOtherApps: true)
         SettingsOpener.open?()
+    }
+
+    @objc private func checkForUpdates(_ sender: Any?) {
+        // Update results (sheet, alerts) are presented by ContentView, so ensure
+        // a main window is visible before kicking off the check.
+        NSApp.activate(ignoringOtherApps: true)
+        let existing = NSApp.windows.first { window in
+            window.canBecomeMain && !(window is CommandPalettePanel)
+        }
+        if let existing {
+            if existing.isMiniaturized { existing.deminiaturize(nil) }
+            existing.makeKeyAndOrderFront(nil)
+        } else {
+            MainWindowOpener.open?()
+        }
+        UpdateCheckTrigger.trigger?()
     }
 }
