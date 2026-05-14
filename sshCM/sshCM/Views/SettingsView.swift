@@ -63,8 +63,9 @@ struct SettingsView: View {
                 .onChange(of: presentationRaw) { _, newValue in
                     let presentation = AppPresentation(rawValue: newValue) ?? .dock
                     NSApp.setActivationPolicy(presentation.activationPolicy)
+                    MenuBarStatusItem.shared.apply(presentation)
                     if presentation == .dock {
-                        NSApp.activate(ignoringOtherApps: true)
+                        forceMenuBarRefresh()
                     }
                 }
             } header: {
@@ -106,6 +107,13 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 520, height: 720)
+        .background(
+            Button("") { NSApp.keyWindow?.performClose(nil) }
+                .keyboardShortcut(.cancelAction)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityHidden(true)
+        )
         .onAppear {
             autoCheck = updater.autoCheckForUpdates
         }
@@ -209,6 +217,29 @@ struct SettingsView: View {
 
     private var checkButtonTitle: String {
         isChecking ? "Checking…" : "Check for Updates Now"
+    }
+
+    private func forceMenuBarRefresh() {
+        // .accessory → .regular leaves the menu bar empty until another app takes
+        // focus. Briefly activate another running app, then come back, to force
+        // AppKit to rebuild our menu bar.
+        let other = NSWorkspace.shared.runningApplications.first { app in
+            app.activationPolicy == .regular
+                && app.processIdentifier != NSRunningApplication.current.processIdentifier
+                && !app.isTerminated
+                && !app.isHidden
+        }
+        if let other {
+            other.activate()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                NSApp.activate(ignoringOtherApps: true)
+                if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) {
+                    window.makeKeyAndOrderFront(nil)
+                }
+            }
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     private func chooseTerminalApp() {

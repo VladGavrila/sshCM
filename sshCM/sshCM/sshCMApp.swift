@@ -6,6 +6,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(AppPresentation.current.activationPolicy)
     }
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        MenuBarStatusItem.shared.apply(AppPresentation.current)
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
@@ -33,13 +37,6 @@ struct sshCMApp: App {
 
     private var presentation: AppPresentation {
         AppPresentation(rawValue: presentationRaw) ?? .dock
-    }
-
-    private var menuBarInserted: Binding<Bool> {
-        Binding(
-            get: { (AppPresentation(rawValue: presentationRaw) ?? .dock) == .menuBar },
-            set: { presentationRaw = ($0 ? AppPresentation.menuBar : AppPresentation.dock).rawValue }
-        )
     }
 
     var body: some Scene {
@@ -86,11 +83,6 @@ struct sshCMApp: App {
                 .environment(updater)
                 .environment(tags)
         }
-
-        MenuBarExtra("sshCM", systemImage: "server.rack", isInserted: menuBarInserted) {
-            MenuBarMenuContent()
-        }
-        .menuBarExtraStyle(.menu)
     }
 
     private func configurePalette() {

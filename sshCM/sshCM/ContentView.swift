@@ -11,6 +11,9 @@ struct ContentView: View {
 
     @AppStorage("defaultTerminalAppPath") private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
 
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
+
     @State private var showingAdd = false
     @State private var hostBeingEdited: SSHHost?
     @State private var hostPendingDeletion: SSHHost?
@@ -107,6 +110,10 @@ struct ContentView: View {
             .onAppear {
                 syncPresentedRelease()
                 drainPaletteBridge()
+                let open = openWindow
+                MainWindowOpener.open = { open(id: "main") }
+                let openSettingsAction = openSettings
+                SettingsOpener.open = { openSettingsAction() }
             }
             .onChange(of: paletteBridge.pendingEdit) { _, newValue in
                 guard let host = newValue else { return }
