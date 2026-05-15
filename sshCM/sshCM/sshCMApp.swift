@@ -69,10 +69,21 @@ struct sshCMApp: App {
                     Task { await updater.check(userInitiated: true) }
                 }
             }
+            CommandGroup(replacing: .newItem) {
+                Button("Add Host…") {
+                    Self.surfaceMainWindow()
+                    paletteBridge.pendingAdd = true
+                }
+                .keyboardShortcut("n", modifiers: [.command])
+            }
             CommandGroup(after: .newItem) {
                 Button("Reload Config") {
-                    reachCache.clear()
-                    store.load()
+                    if CommandPaletteController.shared.isPaletteVisible {
+                        NotificationCenter.default.post(name: .palettePerformRefresh, object: nil)
+                    } else {
+                        reachCache.clear()
+                        store.load()
+                    }
                 }
                 .keyboardShortcut("r", modifiers: [.command])
             }
@@ -91,6 +102,7 @@ struct sshCMApp: App {
             store: store,
             favorites: favorites,
             tagsStore: tags,
+            reachCache: reachCache,
             onConnect: { host in
                 guard let alias = host.aliases.first, !alias.isEmpty else { return }
                 let path = UserDefaults.standard.string(forKey: "defaultTerminalAppPath")
@@ -113,6 +125,14 @@ struct sshCMApp: App {
                 let pb = NSPasteboard.general
                 pb.clearContents()
                 pb.setString("ssh \(alias)", forType: .string)
+            },
+            onCopyIP: { host in
+                let value = host.hostName?.trimmingCharacters(in: .whitespaces)
+                    ?? host.aliases.first?.trimmingCharacters(in: .whitespaces)
+                guard let value, !value.isEmpty else { return }
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(value, forType: .string)
             },
             onDelete: { host in
                 Self.surfaceMainWindow()

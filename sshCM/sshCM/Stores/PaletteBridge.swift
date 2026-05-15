@@ -6,4 +6,5 @@ import Observation
 final class PaletteBridge {
     var pendingEdit: SSHHost?
     var pendingDelete: SSHHost?
+    var pendingAdd: Bool = false
 }

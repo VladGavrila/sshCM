@@ -5,11 +5,13 @@ struct CommandPaletteView: View {
     let onConnect: (SSHHost) -> Void
     let onEdit: (SSHHost) -> Void
     let onCopy: (SSHHost) -> Void
+    let onCopyIP: (SSHHost) -> Void
     let onDelete: (SSHHost) -> Void
     let onClose: () -> Void
 
     @Environment(FavoritesStore.self) private var favorites
     @Environment(TagsStore.self) private var tagsStore
+    @Environment(ReachabilityCache.self) private var reachCache
 
     @State private var query: String = ""
     @State private var selectedIndex: Int = 0
@@ -62,13 +64,13 @@ struct CommandPaletteView: View {
 
             Divider()
 
-            HStack(spacing: 16) {
+            HStack(spacing: 14) {
                 hint("↵", "Connect")
                 hint("⌘E", "Edit")
                 hint("⌘C", "Copy ssh")
+                hint("⌘I", "Copy IP")
+                hint("⌘R", "Refresh")
                 hint("⌘D", "Delete")
-                Spacer()
-                hint("Esc", "Close")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -102,9 +104,31 @@ struct CommandPaletteView: View {
             if let host = selectedHost { onCopy(host) }
             return .handled
         }
+        .onKeyPress(keys: ["i"]) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            if let host = selectedHost { onCopyIP(host) }
+            return .handled
+        }
+        .onKeyPress(keys: ["r"]) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            refreshSelected()
+            return .handled
+        }
         .onKeyPress(keys: ["d"]) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             if let host = selectedHost { onDelete(host) }
+            return .handled
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .palettePerformRefresh)) { _ in
+            refreshSelected()
+        }
+        .onKeyPress(keys: ["1", "2", "3", "4", "5", "6", "7", "8", "9"]) { press in
+            guard press.modifiers.contains(.command),
+                  let digit = press.characters.first.flatMap({ Int(String($0)) }),
+                  digit >= 1, digit <= 9 else { return .ignored }
+            let index = digit - 1
+            guard results.indices.contains(index) else { return .handled }
+            onConnect(results[index])
             return .handled
         }
     }
@@ -114,8 +138,17 @@ struct CommandPaletteView: View {
         let isSelected = index == selectedIndex
         let isFav = favorites.isFavorite(alias)
         let subtitle = subtitleString(for: host)
+        let reachStatus = reachStatus(for: host)
 
         return HStack(spacing: 10) {
+            Group {
+                if let reachStatus {
+                    ReachabilityDot(status: reachStatus, size: 8)
+                } else {
+                    Color.clear.frame(width: 8, height: 8)
+                }
+            }
+            .frame(width: 10)
             Image(systemName: isFav ? "star.fill" : "terminal")
                 .foregroundStyle(isFav ? Color.yellow : Color.secondary)
                 .frame(width: 16)
@@ -132,6 +165,14 @@ struct CommandPaletteView: View {
                 }
             }
             Spacer()
+            if index < 9 {
+                Text("⌘\(index + 1)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+            }
             if isSelected {
                 Image(systemName: "return")
                     .foregroundStyle(.secondary)
@@ -166,6 +207,24 @@ struct CommandPaletteView: View {
 
     private func activateSelected() {
         if let host = selectedHost { onConnect(host) }
+    }
+
+    private func reachStatus(for host: SSHHost) -> ReachStatus? {
+        guard let key = ReachabilityCache.cacheKey(for: host) else { return nil }
+        return reachCache.status(for: key)
+    }
+
+    private func refreshSelected() {
+        guard let host = selectedHost,
+              let probe = ReachabilityCache.probeTarget(for: host),
+              let key = ReachabilityCache.cacheKey(for: host) else { return }
+        reachCache.set(.checking, for: key)
+        Task {
+            let success = await Reachability.probe(host: probe.target, port: probe.port)
+            await MainActor.run {
+                reachCache.set(success ? .reachable : .unreachable, for: key)
+            }
+        }
     }
 
     private func subtitleString(for host: SSHHost) -> String? {

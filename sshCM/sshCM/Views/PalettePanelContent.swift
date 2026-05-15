@@ -4,6 +4,7 @@ struct PalettePanelContent: View {
     let onConnect: (SSHHost) -> Void
     let onEdit: (SSHHost) -> Void
     let onCopy: (SSHHost) -> Void
+    let onCopyIP: (SSHHost) -> Void
     let onDelete: (SSHHost) -> Void
     let onClose: () -> Void
 
@@ -17,6 +18,7 @@ struct PalettePanelContent: View {
             onConnect: onConnect,
             onEdit: onEdit,
             onCopy: onCopy,
+            onCopyIP: onCopyIP,
             onDelete: onDelete,
             onClose: onClose
         )

@@ -129,6 +129,11 @@ struct ContentView: View {
                 hostPendingDeletion = host
                 paletteBridge.pendingDelete = nil
             }
+            .onChange(of: paletteBridge.pendingAdd) { _, newValue in
+                guard newValue else { return }
+                showingAdd = true
+                paletteBridge.pendingAdd = false
+            }
     }
 
     private var stateMarker: Int {
@@ -151,6 +156,10 @@ struct ContentView: View {
         if let host = paletteBridge.pendingDelete {
             hostPendingDeletion = host
             paletteBridge.pendingDelete = nil
+        }
+        if paletteBridge.pendingAdd {
+            showingAdd = true
+            paletteBridge.pendingAdd = false
         }
     }
 

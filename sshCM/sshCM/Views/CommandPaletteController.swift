@@ -1,17 +1,25 @@
 import AppKit
 import SwiftUI
 
+extension Notification.Name {
+    static let palettePerformRefresh = Notification.Name("sshCM.palette.performRefresh")
+}
+
 @MainActor
 final class CommandPaletteController: NSObject, NSWindowDelegate {
     static let shared = CommandPaletteController()
+
+    var isPaletteVisible: Bool { panel?.isVisible ?? false }
 
     struct Configuration {
         var store: ConfigStore
         var favorites: FavoritesStore
         var tagsStore: TagsStore
+        var reachCache: ReachabilityCache
         var onConnect: (SSHHost) -> Void
         var onEdit: (SSHHost) -> Void
         var onCopy: (SSHHost) -> Void
+        var onCopyIP: (SSHHost) -> Void
         var onDelete: (SSHHost) -> Void
     }
 
@@ -34,7 +42,8 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
 
     func show() {
         guard let configuration else { return }
-        let panel = panel ?? makePanel()
+        teardownPanel()
+        let panel = makePanel()
 
         let content = PalettePanelContent(
             onConnect: { [weak self] host in
@@ -48,6 +57,9 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
             onCopy: { host in
                 configuration.onCopy(host)
             },
+            onCopyIP: { host in
+                configuration.onCopyIP(host)
+            },
             onDelete: { [weak self] host in
                 self?.close()
                 configuration.onDelete(host)
@@ -59,6 +71,7 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         .environment(configuration.store)
         .environment(configuration.favorites)
         .environment(configuration.tagsStore)
+        .environment(configuration.reachCache)
 
         let host = NSHostingView(rootView: AnyView(content))
         host.translatesAutoresizingMaskIntoConstraints = true
@@ -73,7 +86,16 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
     }
 
     func close() {
-        panel?.orderOut(nil)
+        teardownPanel()
+    }
+
+    private func teardownPanel() {
+        guard let existing = panel else { return }
+        existing.delegate = nil
+        existing.makeFirstResponder(nil)
+        existing.contentView = nil
+        existing.orderOut(nil)
+        panel = nil
     }
 
     private func makePanel() -> CommandPalettePanel {

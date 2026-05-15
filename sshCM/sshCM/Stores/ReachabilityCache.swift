@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import Foundation
 
 enum ReachStatus: Equatable {
     case checking, reachable, unreachable
@@ -38,5 +39,19 @@ final class ReachabilityCache {
     func clear() {
         statuses.removeAll()
         epoch &+= 1
+    }
+
+    static func probeTarget(for host: SSHHost) -> (target: String, port: Int)? {
+        let candidates = [host.hostName, host.aliases.first]
+        let target = candidates
+            .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty }
+        guard let target else { return nil }
+        return (target, host.port ?? 22)
+    }
+
+    static func cacheKey(for host: SSHHost) -> String? {
+        guard let pt = probeTarget(for: host) else { return nil }
+        return "\(pt.target):\(pt.port)"
     }
 }

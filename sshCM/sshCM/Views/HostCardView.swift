@@ -11,7 +11,6 @@ struct HostCardView: View {
     @Environment(ReachabilityCache.self) private var reachCache
 
     @State private var reachStatus: ReachStatus = .checking
-    @State private var pulsate: Bool = false
 
     private var favoriteAlias: String? {
         host.aliases.first.flatMap { $0.isEmpty ? nil : $0 }
@@ -98,20 +97,15 @@ struct HostCardView: View {
     }
 
     private var reachabilityKey: String {
-        "\(host.hostName ?? host.aliases.first ?? "")|\(host.port ?? 22)|\(reachCache.epoch)"
+        "\(ReachabilityCache.cacheKey(for: host) ?? "")|\(reachCache.epoch)"
     }
 
     private func runReachabilityCheck() async {
-        let candidates = [host.hostName, host.aliases.first]
-        let target = candidates
-            .compactMap { $0?.trimmingCharacters(in: CharacterSet.whitespaces) }
-            .first { !$0.isEmpty }
-        guard let target else {
+        guard let probe = ReachabilityCache.probeTarget(for: host),
+              let cacheKey = ReachabilityCache.cacheKey(for: host) else {
             reachStatus = .unreachable
             return
         }
-        let port = host.port ?? 22
-        let cacheKey = "\(target):\(port)"
 
         if let cached = reachCache.status(for: cacheKey), cached != .checking {
             reachStatus = cached
@@ -121,7 +115,7 @@ struct HostCardView: View {
         reachStatus = .checking
         reachCache.set(.checking, for: cacheKey)
 
-        let success = await Reachability.probe(host: target, port: port)
+        let success = await Reachability.probe(host: probe.target, port: probe.port)
         guard !Task.isCancelled else { return }
         let result: ReachStatus = success ? .reachable : .unreachable
         reachStatus = result
@@ -142,21 +136,7 @@ struct HostCardView: View {
     }
 
     private var reachIndicator: some View {
-        Circle()
-            .fill(reachStatus.color)
-            .frame(width: 10, height: 10)
-            .opacity(reachStatus == .checking ? (pulsate ? 0.3 : 1.0) : 1.0)
-            .animation(
-                reachStatus == .checking
-                    ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
-                    : .default,
-                value: pulsate
-            )
-            .onAppear { pulsate = reachStatus == .checking }
-            .onChange(of: reachStatus) { _, newValue in
-                pulsate = newValue == .checking
-            }
-            .help(reachStatus.help)
+        ReachabilityDot(status: reachStatus)
     }
 
     private var favoriteButton: some View {
