@@ -3,6 +3,7 @@ import Foundation
 struct SSHHost: Identifiable, Hashable {
     let id: UUID
     var aliases: [String]
+    var searchAliases: [String]
     var hostName: String?
     var user: String?
     var port: Int?
@@ -13,6 +14,7 @@ struct SSHHost: Identifiable, Hashable {
     init(
         id: UUID = UUID(),
         aliases: [String],
+        searchAliases: [String] = [],
         hostName: String? = nil,
         user: String? = nil,
         port: Int? = nil,
@@ -22,6 +24,7 @@ struct SSHHost: Identifiable, Hashable {
     ) {
         self.id = id
         self.aliases = aliases
+        self.searchAliases = searchAliases
         self.hostName = hostName
         self.user = user
         self.port = port

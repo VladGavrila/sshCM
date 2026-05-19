@@ -18,6 +18,9 @@ struct CommandPaletteView: View {
     @FocusState private var queryFocused: Bool
 
     private let maxResults = 8
+    private let approxRowHeight: CGFloat = 46
+    private let minVisibleRows: CGFloat = 4
+    private let maxVisibleRows: CGFloat = 7
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,32 +38,38 @@ struct CommandPaletteView: View {
 
             Divider()
 
-            if results.isEmpty {
-                Text(hosts.isEmpty ? "No hosts in ~/.ssh/config." : "No matches for \"\(query)\".")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 24)
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(Array(results.enumerated()), id: \.element.id) { index, host in
-                                row(for: host, index: index)
-                                    .id(host.id)
+            Group {
+                if results.isEmpty {
+                    Text(hosts.isEmpty ? "No hosts in ~/.ssh/config." : "No matches for \"\(query)\".")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                ForEach(Array(results.enumerated()), id: \.element.id) { index, host in
+                                    row(for: host, index: index)
+                                        .id(host.id)
+                                }
                             }
+                            .frame(maxWidth: .infinity, alignment: .top)
                         }
-                    }
-                    .frame(maxHeight: 320)
-                    .onChange(of: selectedIndex) { _, newValue in
-                        if results.indices.contains(newValue) {
-                            withAnimation(.easeOut(duration: 0.1)) {
-                                proxy.scrollTo(results[newValue].id, anchor: .center)
+                        .onChange(of: selectedIndex) { _, newValue in
+                            if results.indices.contains(newValue) {
+                                withAnimation(.easeOut(duration: 0.1)) {
+                                    proxy.scrollTo(results[newValue].id, anchor: .center)
+                                }
                             }
                         }
                     }
                 }
             }
+            .frame(
+                minHeight: approxRowHeight * minVisibleRows,
+                maxHeight: approxRowHeight * maxVisibleRows,
+                alignment: .top
+            )
 
             Divider()
 
@@ -274,6 +283,12 @@ struct CommandPaletteView: View {
             if alias == q { return 1000 }
             if alias.hasPrefix(q) { return 500 + max(0, 20 - (alias.count - q.count)) }
             if alias.contains(q) { return 100 }
+        }
+
+        for sa in host.searchAliases.map({ $0.lowercased() }) where !sa.isEmpty {
+            if sa == q { return 900 }
+            if sa.hasPrefix(q) { return 400 + max(0, 20 - (sa.count - q.count)) }
+            if sa.contains(q) { return 80 }
         }
 
         let tagName = host.aliases.first

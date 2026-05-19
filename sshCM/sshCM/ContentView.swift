@@ -295,7 +295,7 @@ struct ContentView: View {
             let tagName = host.aliases.first
                 .flatMap { tagsStore.tag(for: $0) }
                 .map { tagsStore.displayName(for: $0) }
-            let haystacks: [String?] = [
+            var haystacks: [String?] = [
                 host.title,
                 host.hostName,
                 host.user,
@@ -304,6 +304,7 @@ struct ContentView: View {
                 host.port.map(String.init),
                 tagName
             ]
+            haystacks.append(contentsOf: host.searchAliases.map { Optional($0) })
             return haystacks.contains { value in
                 guard let value, !value.isEmpty else { return false }
                 return value.localizedCaseInsensitiveContains(query)

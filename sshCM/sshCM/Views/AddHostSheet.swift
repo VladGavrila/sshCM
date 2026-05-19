@@ -9,6 +9,7 @@ struct AddHostSheet: View {
     var onAdded: ((SSHHost) -> Void)?
 
     @State private var alias: String
+    @State private var searchAliases: String
     @State private var hostName: String
     @State private var user: String
     @State private var portText: String
@@ -22,6 +23,7 @@ struct AddHostSheet: View {
         self.editing = editing
         self.onAdded = onAdded
         let initialAlias = editing?.aliases.joined(separator: " ") ?? ""
+        let initialSearchAliases = editing?.searchAliases.joined(separator: ", ") ?? ""
         let initialHostName = editing?.hostName ?? ""
         let initialUser = editing?.user ?? ""
         let initialPort = editing.flatMap { $0.port.map(String.init) } ?? "22"
@@ -30,6 +32,7 @@ struct AddHostSheet: View {
         let hasAdvanced = !initialIdentity.isEmpty || !initialProxy.isEmpty
 
         _alias = State(initialValue: initialAlias)
+        _searchAliases = State(initialValue: initialSearchAliases)
         _hostName = State(initialValue: initialHostName)
         _user = State(initialValue: initialUser)
         _portText = State(initialValue: initialPort)
@@ -76,6 +79,11 @@ struct AddHostSheet: View {
                         TextField("Alias", text: $alias, prompt: Text("e.g. prod-bastion"))
                         tagButton
                     }
+                    TextField(
+                        "Search aliases",
+                        text: $searchAliases,
+                        prompt: Text("optional, comma-separated — search only")
+                    )
                     TextField("HostName (IP or FQDN)", text: $hostName, prompt: Text("e.g. 10.0.0.4 or db.example.com"))
                     TextField("User", text: $user, prompt: Text("e.g. ubuntu"))
                     TextField("Port", text: $portText)
@@ -156,9 +164,14 @@ struct AddHostSheet: View {
         let aliases = alias.trimmed.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
         guard !aliases.isEmpty else { return }
         let primaryAlias = aliases[0]
+        let parsedSearchAliases = searchAliases
+            .split(separator: ",", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
         if let original = editing {
             var updated = original
             updated.aliases = aliases
+            updated.searchAliases = parsedSearchAliases
             updated.hostName = hostName.trimmed.nilIfEmpty
             updated.user = user.trimmed.nilIfEmpty
             updated.port = portValue
@@ -171,6 +184,7 @@ struct AddHostSheet: View {
         } else {
             let host = SSHHost(
                 aliases: aliases,
+                searchAliases: parsedSearchAliases,
                 hostName: hostName.trimmed.nilIfEmpty,
                 user: user.trimmed.nilIfEmpty,
                 port: portValue,

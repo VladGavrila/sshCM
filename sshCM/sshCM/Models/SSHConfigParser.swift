@@ -39,6 +39,11 @@ enum SSHConfigParser {
                 continue
             }
 
+            if currentHost != nil, let parsed = parseSearchAliasesComment(trimmed) {
+                currentHost?.searchAliases = parsed
+                continue
+            }
+
             if let kw = keyword, kw.caseInsensitiveCompare("Match") == .orderedSame {
                 flushHost()
                 inMatchBlock = true
@@ -92,6 +97,17 @@ enum SSHConfigParser {
 
     private static func tokenize(_ value: String) -> [String] {
         value.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+    }
+
+    static let searchAliasesMarker = "# sshCM-aliases:"
+
+    private static func parseSearchAliasesComment(_ trimmed: String) -> [String]? {
+        guard trimmed.lowercased().hasPrefix(searchAliasesMarker.lowercased()) else { return nil }
+        let payload = trimmed.dropFirst(searchAliasesMarker.count)
+        return payload
+            .split(separator: ",", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 
     private static func unquote(_ s: String) -> String {
