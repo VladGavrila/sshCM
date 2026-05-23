@@ -32,6 +32,10 @@ final class MenuBarStatusItem: NSObject {
         }
     }
 
+    func refreshMenu() {
+        statusItem?.menu = buildMenu()
+    }
+
     private func install() {
         guard statusItem == nil else { return }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -57,9 +61,12 @@ final class MenuBarStatusItem: NSObject {
         let palette = NSMenuItem(
             title: "Open Command Palette",
             action: #selector(openPalette(_:)),
-            keyEquivalent: "k"
+            keyEquivalent: ""
         )
-        palette.keyEquivalentModifierMask = [.command, .option]
+        if let shortcut = KeyShortcut.menuKeyEquivalent(for: .palette) {
+            palette.keyEquivalent = shortcut.key
+            palette.keyEquivalentModifierMask = shortcut.mask
+        }
         palette.target = self
         menu.addItem(palette)
 
@@ -68,6 +75,10 @@ final class MenuBarStatusItem: NSObject {
             action: #selector(showMainWindow(_:)),
             keyEquivalent: ""
         )
+        if let shortcut = KeyShortcut.menuKeyEquivalent(for: .mainWindow) {
+            mainWindow.keyEquivalent = shortcut.key
+            mainWindow.keyEquivalentModifierMask = shortcut.mask
+        }
         mainWindow.target = self
         menu.addItem(mainWindow)
 

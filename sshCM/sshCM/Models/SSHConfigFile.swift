@@ -67,6 +67,9 @@ struct SSHConfigFile {
         if !h.searchAliases.isEmpty {
             lines.append("    \(SSHConfigParser.searchAliasesMarker) \(h.searchAliases.joined(separator: ", "))")
         }
+        if !h.alternateUsers.isEmpty {
+            lines.append("    \(SSHConfigParser.alternateUsersMarker) \(h.alternateUsers.joined(separator: ", "))")
+        }
         if let v = h.hostName, !v.isEmpty { lines.append(indented("HostName", v)) }
         if let v = h.user, !v.isEmpty { lines.append(indented("User", v)) }
         if let p = h.port { lines.append(indented("Port", String(p))) }

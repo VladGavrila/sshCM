@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct HostCardView: View {
+struct HostRowView: View {
     let host: SSHHost
     let isJumpHost: Bool
     let onEdit: () -> Void
@@ -32,23 +32,37 @@ struct HostCardView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            header
+        HStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(hostTag?.color ?? Color.clear)
+                .frame(width: 3, height: 22)
 
-            Divider()
+            ReachabilityDot(status: reachStatus)
 
-            VStack(spacing: 6) {
-                if let v = host.hostName, !v.isEmpty {
-                    row(symbol: "network", value: v)
+            favoriteButton
+
+            Text(host.title)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(minWidth: 140, alignment: .leading)
+
+            HStack(spacing: 0) {
+                if let u = host.user, !u.isEmpty {
+                    Text(u).foregroundStyle(.secondary)
+                    Text("@").foregroundStyle(.secondary)
                 }
-                if let v = host.user, !v.isEmpty {
-                    row(symbol: "person.fill", value: v)
+                if let h = host.hostName, !h.isEmpty {
+                    Text(h).foregroundStyle(.primary)
                 }
             }
+            .font(.callout)
+            .lineLimit(1)
+            .truncationMode(.middle)
 
-            Divider()
+            Spacer(minLength: 8)
 
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 if let v = host.identityFile, !v.isEmpty {
                     Image(systemName: "key.fill")
                         .foregroundStyle(.secondary)
@@ -60,18 +74,24 @@ struct HostCardView: View {
                         .help(v)
                 }
                 if let p = host.port, p != 22 {
-                    Image(systemName: "number")
-                        .foregroundStyle(.secondary)
-                        .help(String(p))
+                    HStack(spacing: 2) {
+                        Image(systemName: "number")
+                            .foregroundStyle(.secondary)
+                        Text(String(p))
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                    .help(String(p))
                 }
                 if isJumpHost {
                     Image(systemName: "arrow.triangle.branch")
                         .foregroundStyle(.secondary)
                         .help("Used as a jump host by other entries")
                 }
+            }
 
-                Spacer()
-
+            HStack(spacing: 6) {
                 Button(role: .destructive, action: onDelete) {
                     Image(systemName: "trash")
                 }
@@ -87,18 +107,9 @@ struct HostCardView: View {
                 connectButton
             }
         }
-        .padding(14)
-        .frame(minWidth: 300, maxWidth: 300, alignment: .topLeading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(.separator, lineWidth: 0.5)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(hostTag?.color ?? Color.clear, lineWidth: 2)
-        )
-        .padding(15)
+        .padding(.vertical, 7)
+        .padding(.horizontal, 14)
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder
@@ -132,23 +143,6 @@ struct HostCardView: View {
         }
     }
 
-    private var header: some View {
-        HStack {
-            reachIndicator
-            Spacer()
-            Text(host.title)
-                .font(.headline)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer()
-            favoriteButton
-        }
-    }
-
-    private var reachIndicator: some View {
-        ReachabilityDot(status: reachStatus)
-    }
-
     private var favoriteButton: some View {
         Button {
             if let alias = favoriteAlias {
@@ -162,20 +156,5 @@ struct HostCardView: View {
         .buttonStyle(.borderless)
         .disabled(favoriteAlias == nil)
         .help(isFavorite ? "Unpin from top" : "Pin to top")
-    }
-
-    private func row(symbol: String, value: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: symbol)
-                .frame(width: 18, alignment: .center)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 8)
-            Text(value)
-                .font(.callout)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .foregroundStyle(.primary)
-                .help(value)
-        }
     }
 }

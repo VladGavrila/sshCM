@@ -2,7 +2,7 @@ import SwiftUI
 
 struct CommandPaletteView: View {
     let hosts: [SSHHost]
-    let onConnect: (SSHHost) -> Void
+    let onConnect: (SSHHost, String?) -> Void
     let onEdit: (SSHHost) -> Void
     let onCopy: (SSHHost) -> Void
     let onCopyIP: (SSHHost) -> Void
@@ -15,6 +15,8 @@ struct CommandPaletteView: View {
 
     @State private var query: String = ""
     @State private var selectedIndex: Int = 0
+    @State private var userPickerHost: SSHHost?
+    @State private var userPickerIndex: Int = 0
     @FocusState private var queryFocused: Bool
 
     private let maxResults = 8
@@ -31,7 +33,6 @@ struct CommandPaletteView: View {
                     .textFieldStyle(.plain)
                     .font(.title3)
                     .focused($queryFocused)
-                    .onSubmit { activateSelected() }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -39,7 +40,9 @@ struct CommandPaletteView: View {
             Divider()
 
             Group {
-                if results.isEmpty {
+                if let host = userPickerHost {
+                    userPickerContent(for: host)
+                } else if results.isEmpty {
                     Text(hosts.isEmpty ? "No hosts in ~/.ssh/config." : "No matches for \"\(query)\".")
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -74,33 +77,62 @@ struct CommandPaletteView: View {
             Divider()
 
             HStack(spacing: 14) {
-                hint("↵", "Connect")
-                hint("⌘E", "Edit")
-                hint("⌘C", "Copy ssh")
-                hint("⌘I", "Copy IP")
-                hint("⌘R", "Refresh")
-                hint("⌘D", "Delete")
+                if userPickerHost != nil {
+                    hint("↵", "Connect")
+                    hint("Esc", "Back")
+                } else {
+                    hint("↵", "Connect")
+                    if selectedHostHasAlternateUsers {
+                        hint("⌥↵", "Connect as…")
+                    }
+                    hint("⌘E", "Edit")
+                    hint("⌘C", "Copy ssh")
+                    hint("⌘I", "Copy IP")
+                    hint("⌘R", "Refresh")
+                    hint("⌘D", "Delete")
+                }
             }
             .font(.caption)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        .frame(width: 560)
+        .frame(width: 600)
         .onChange(of: query) { _, _ in
             selectedIndex = 0
+            dismissUserPicker()
         }
         .onAppear { queryFocused = true }
         .onKeyPress(.downArrow) {
-            move(by: 1)
+            if userPickerHost != nil {
+                moveUserPicker(by: 1)
+            } else {
+                move(by: 1)
+            }
             return .handled
         }
         .onKeyPress(.upArrow) {
-            move(by: -1)
+            if userPickerHost != nil {
+                moveUserPicker(by: -1)
+            } else {
+                move(by: -1)
+            }
             return .handled
         }
         .onKeyPress(.escape) {
-            onClose()
+            if userPickerHost != nil {
+                dismissUserPicker()
+            } else {
+                onClose()
+            }
+            return .handled
+        }
+        .onKeyPress(keys: [.return]) { press in
+            if press.modifiers.contains(.option), userPickerHost == nil {
+                openUserPicker()
+                return .handled
+            }
+            activateSelected()
             return .handled
         }
         .onKeyPress(keys: ["e"]) { press in
@@ -136,8 +168,15 @@ struct CommandPaletteView: View {
                   let digit = press.characters.first.flatMap({ Int(String($0)) }),
                   digit >= 1, digit <= 9 else { return .ignored }
             let index = digit - 1
-            guard results.indices.contains(index) else { return .handled }
-            onConnect(results[index])
+            if let host = userPickerHost {
+                let entries = userPickerEntries(for: host)
+                guard entries.indices.contains(index) else { return .handled }
+                onConnect(host, entries[index].user)
+                dismissUserPicker()
+            } else {
+                guard results.indices.contains(index) else { return .handled }
+                onConnect(results[index], nil)
+            }
             return .handled
         }
     }
@@ -148,6 +187,7 @@ struct CommandPaletteView: View {
         let isFav = favorites.isFavorite(alias)
         let subtitle = subtitleString(for: host)
         let reachStatus = reachStatus(for: host)
+        let isJumpHost = !Set(host.aliases).isDisjoint(with: jumpHostAliases)
 
         return HStack(spacing: 10) {
             Group {
@@ -174,6 +214,39 @@ struct CommandPaletteView: View {
                 }
             }
             Spacer()
+            if let pj = host.proxyJump?.trimmingCharacters(in: .whitespaces), !pj.isEmpty {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+                    .help("Connects through \(pj)")
+            }
+            if isJumpHost {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+                    .help("Used as a jump host by other entries")
+            }
+            let altUsers = host.alternateUsers.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            if !altUsers.isEmpty {
+                HStack(spacing: 3) {
+                    Image(systemName: "person.2.fill")
+                        .font(.caption2)
+                    Text("\(altUsers.count + 1)")
+                        .font(.caption2)
+                        .monospacedDigit()
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+                .help("Alt users: \(altUsers.joined(separator: ", ")) — ⌥↵ to pick")
+            }
             if index < 9 {
                 Text("⌘\(index + 1)")
                     .font(.caption)
@@ -191,7 +264,20 @@ struct CommandPaletteView: View {
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear)
-        .onTapGesture { onConnect(host) }
+        .onTapGesture { onConnect(host, nil) }
+        .contextMenu {
+            let primary = host.user?.trimmingCharacters(in: .whitespaces) ?? ""
+            Button(primary.isEmpty ? "Connect (default user)" : "Connect as \(primary)") {
+                onConnect(host, nil)
+            }
+            let altUsers = host.alternateUsers.filter { !$0.isEmpty }
+            if !altUsers.isEmpty {
+                Divider()
+                ForEach(altUsers, id: \.self) { user in
+                    Button("Connect as \(user)") { onConnect(host, user) }
+                }
+            }
+        }
     }
 
     private func hint(_ key: String, _ label: String) -> some View {
@@ -204,8 +290,17 @@ struct CommandPaletteView: View {
         }
     }
 
+    private var jumpHostAliases: Set<String> {
+        SSHHost.jumpHostAliases(in: hosts)
+    }
+
     private var selectedHost: SSHHost? {
         results.indices.contains(selectedIndex) ? results[selectedIndex] : nil
+    }
+
+    private var selectedHostHasAlternateUsers: Bool {
+        guard let host = selectedHost else { return false }
+        return host.alternateUsers.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
     }
 
     private func move(by delta: Int) {
@@ -215,7 +310,108 @@ struct CommandPaletteView: View {
     }
 
     private func activateSelected() {
-        if let host = selectedHost { onConnect(host) }
+        if let host = userPickerHost {
+            let entries = userPickerEntries(for: host)
+            guard entries.indices.contains(userPickerIndex) else { return }
+            onConnect(host, entries[userPickerIndex].user)
+            dismissUserPicker()
+            return
+        }
+        if let host = selectedHost { onConnect(host, nil) }
+    }
+
+    private func openUserPicker() {
+        guard let host = selectedHost else { return }
+        let alts = host.alternateUsers.filter { !$0.isEmpty }
+        guard !alts.isEmpty else { return }
+        userPickerHost = host
+        userPickerIndex = 0
+    }
+
+    private func dismissUserPicker() {
+        guard userPickerHost != nil else { return }
+        userPickerHost = nil
+        userPickerIndex = 0
+    }
+
+    private func moveUserPicker(by delta: Int) {
+        guard let host = userPickerHost else { return }
+        let entries = userPickerEntries(for: host)
+        guard !entries.isEmpty else { return }
+        userPickerIndex = max(0, min(entries.count - 1, userPickerIndex + delta))
+    }
+
+    private func userPickerEntries(for host: SSHHost) -> [(label: String, user: String?, isDefault: Bool)] {
+        var entries: [(String, String?, Bool)] = []
+        let primary = host.user?.trimmingCharacters(in: .whitespaces) ?? ""
+        entries.append((primary.isEmpty ? "default user" : primary, nil, true))
+        for u in host.alternateUsers.map({ $0.trimmingCharacters(in: .whitespaces) }) where !u.isEmpty {
+            entries.append((u, u, false))
+        }
+        return entries
+    }
+
+    @ViewBuilder
+    private func userPickerContent(for host: SSHHost) -> some View {
+        let entries = userPickerEntries(for: host)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Connect as")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(host.title)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
+
+            ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
+                let isSelected = index == userPickerIndex
+                HStack(spacing: 10) {
+                    Image(systemName: "person")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16)
+                    Text(entry.label)
+                        .font(.body)
+                    if entry.isDefault {
+                        Text("default")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+                    }
+                    Spacer()
+                    if index < 9 {
+                        Text("⌘\(index + 1)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+                    }
+                    if isSelected {
+                        Image(systemName: "return")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+                .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear)
+                .onTapGesture {
+                    onConnect(host, entry.user)
+                    dismissUserPicker()
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private func reachStatus(for host: SSHHost) -> ReachStatus? {

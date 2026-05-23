@@ -3,12 +3,21 @@ import AppKit
 import Carbon.HIToolbox
 
 struct ShortcutRecorderView: View {
-    @AppStorage(KeyShortcut.StorageKey.keyCode) private var keyCode: Int = KeyShortcut.defaultKeyCode
-    @AppStorage(KeyShortcut.StorageKey.modifiers) private var modifiers: Int = KeyShortcut.defaultModifiers
-    @AppStorage(KeyShortcut.StorageKey.display) private var display: String = KeyShortcut.defaultDisplay
+    private let definition: KeyShortcut.Definition
+
+    @AppStorage private var keyCode: Int
+    @AppStorage private var modifiers: Int
+    @AppStorage private var display: String
 
     @State private var isRecording = false
     @State private var monitor: Any?
+
+    init(definition: KeyShortcut.Definition = .palette) {
+        self.definition = definition
+        _keyCode = AppStorage(wrappedValue: definition.defaultKeyCode, definition.keyCodeKey)
+        _modifiers = AppStorage(wrappedValue: definition.defaultModifiers, definition.modifiersKey)
+        _display = AppStorage(wrappedValue: definition.defaultDisplay, definition.displayKey)
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -32,9 +41,9 @@ struct ShortcutRecorderView: View {
 
             Button("Reset") {
                 stopRecording()
-                keyCode = KeyShortcut.defaultKeyCode
-                modifiers = KeyShortcut.defaultModifiers
-                display = KeyShortcut.defaultDisplay
+                keyCode = definition.defaultKeyCode
+                modifiers = definition.defaultModifiers
+                display = definition.defaultDisplay
             }
         }
         .onDisappear { stopRecording() }

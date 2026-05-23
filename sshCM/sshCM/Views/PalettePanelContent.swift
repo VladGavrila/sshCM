@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct PalettePanelContent: View {
-    let onConnect: (SSHHost) -> Void
+    let onConnect: (SSHHost, String?) -> Void
     let onEdit: (SSHHost) -> Void
     let onCopy: (SSHHost) -> Void
     let onCopyIP: (SSHHost) -> Void

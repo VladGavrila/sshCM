@@ -6,7 +6,7 @@ struct AddHostSheet: View {
     @Environment(TagsStore.self) private var tagsStore
 
     let editing: SSHHost?
-    var onAdded: ((SSHHost) -> Void)?
+    var onSaved: ((SSHHost, _ isNew: Bool, _ addedAlternateUsers: [String]) -> Void)?
 
     @State private var alias: String
     @State private var searchAliases: String
@@ -16,12 +16,16 @@ struct AddHostSheet: View {
     @State private var showAdvanced: Bool
     @State private var identityFile: String
     @State private var proxyJump: String
+    @State private var alternateUsers: String
     @State private var tag: HostTag?
     @State private var showTagPicker: Bool = false
 
-    init(editing: SSHHost? = nil, onAdded: ((SSHHost) -> Void)? = nil) {
+    init(
+        editing: SSHHost? = nil,
+        onSaved: ((SSHHost, _ isNew: Bool, _ addedAlternateUsers: [String]) -> Void)? = nil
+    ) {
         self.editing = editing
-        self.onAdded = onAdded
+        self.onSaved = onSaved
         let initialAlias = editing?.aliases.joined(separator: " ") ?? ""
         let initialSearchAliases = editing?.searchAliases.joined(separator: ", ") ?? ""
         let initialHostName = editing?.hostName ?? ""
@@ -29,6 +33,7 @@ struct AddHostSheet: View {
         let initialPort = editing.flatMap { $0.port.map(String.init) } ?? "22"
         let initialIdentity = editing?.identityFile ?? ""
         let initialProxy = editing?.proxyJump ?? ""
+        let initialAlternateUsers = editing?.alternateUsers.joined(separator: ", ") ?? ""
         let hasAdvanced = !initialIdentity.isEmpty || !initialProxy.isEmpty
 
         _alias = State(initialValue: initialAlias)
@@ -38,6 +43,7 @@ struct AddHostSheet: View {
         _portText = State(initialValue: initialPort)
         _identityFile = State(initialValue: initialIdentity)
         _proxyJump = State(initialValue: initialProxy)
+        _alternateUsers = State(initialValue: initialAlternateUsers)
         _showAdvanced = State(initialValue: hasAdvanced)
     }
 
@@ -86,6 +92,11 @@ struct AddHostSheet: View {
                     )
                     TextField("HostName (IP or FQDN)", text: $hostName, prompt: Text("e.g. 10.0.0.4 or db.example.com"))
                     TextField("User", text: $user, prompt: Text("e.g. ubuntu"))
+                    TextField(
+                        "Alternate users",
+                        text: $alternateUsers,
+                        prompt: Text("optional, comma-separated — also connectable")
+                    )
                     TextField("Port", text: $portText)
                     if !portIsValid {
                         Text("Port must be between 1 and 65535.")
@@ -168,6 +179,15 @@ struct AddHostSheet: View {
             .split(separator: ",", omittingEmptySubsequences: true)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+        let parsedAlternateUsers = alternateUsers
+            .split(whereSeparator: { $0 == "," || $0 == " " || $0 == "\t" })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        let oldAlternates = editing?.alternateUsers ?? []
+        let addedAlternateUsers = parsedAlternateUsers.filter { !oldAlternates.contains($0) }
+
+        let savedHost: SSHHost
+        let isNew: Bool
         if let original = editing {
             var updated = original
             updated.aliases = aliases
@@ -177,10 +197,13 @@ struct AddHostSheet: View {
             updated.port = portValue
             updated.identityFile = identityFile.trimmed.nilIfEmpty
             updated.proxyJump = proxyJump.trimmed.nilIfEmpty
+            updated.alternateUsers = parsedAlternateUsers
             store.update(updated)
             if let oldAlias = original.aliases.first, oldAlias != primaryAlias {
                 tagsStore.remove(alias: oldAlias)
             }
+            savedHost = updated
+            isNew = false
         } else {
             let host = SSHHost(
                 aliases: aliases,
@@ -189,12 +212,15 @@ struct AddHostSheet: View {
                 user: user.trimmed.nilIfEmpty,
                 port: portValue,
                 identityFile: identityFile.trimmed.nilIfEmpty,
-                proxyJump: proxyJump.trimmed.nilIfEmpty
+                proxyJump: proxyJump.trimmed.nilIfEmpty,
+                alternateUsers: parsedAlternateUsers
             )
             store.add(host)
-            onAdded?(host)
+            savedHost = host
+            isNew = true
         }
         tagsStore.set(tag, for: primaryAlias)
+        onSaved?(savedHost, isNew, addedAlternateUsers)
         dismiss()
     }
 }

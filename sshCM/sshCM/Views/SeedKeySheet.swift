@@ -5,6 +5,7 @@ struct SeedKeySheet: View {
     @AppStorage("defaultTerminalAppPath") private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
 
     let host: SSHHost
+    let userOverride: String?
 
     enum Stage: Equatable {
         case noKeys
@@ -29,11 +30,14 @@ struct SeedKeySheet: View {
     @State private var watchFiles: WatchFiles?
     @State private var keysBeforeKeygen: [URL] = []
 
-    init(host: SSHHost) {
+    init(host: SSHHost, userOverride: String? = nil) {
         self.host = host
+        self.userOverride = userOverride?.trimmingCharacters(in: .whitespaces).nilIfEmpty
         let discovered = PublicKeyDiscovery.discover()
+        let preferredPath = UserDefaults.standard.string(forKey: "defaultPublicKeyPath") ?? ""
+        let preferred = discovered.first { $0.path == preferredPath }
         _keys = State(initialValue: discovered)
-        _selectedKey = State(initialValue: discovered.first)
+        _selectedKey = State(initialValue: preferred ?? discovered.first)
         _stage = State(initialValue: discovered.isEmpty ? .noKeys : .offer)
     }
 
@@ -41,13 +45,16 @@ struct SeedKeySheet: View {
         host.aliases.first.flatMap { $0.isEmpty ? nil : $0 }
     }
 
+    private var effectiveUser: String? {
+        userOverride ?? host.user?.trimmingCharacters(in: .whitespaces).nilIfEmpty
+    }
+
     private var loginTarget: String {
-        let userPart = host.user?.trimmingCharacters(in: .whitespaces).nilIfEmpty
         let hostPart = host.hostName?.trimmingCharacters(in: .whitespaces).nilIfEmpty
             ?? alias
             ?? host.title
-        if let userPart {
-            return "\(userPart)@\(hostPart)"
+        if let user = effectiveUser {
+            return "\(user)@\(hostPart)"
         }
         return hostPart
     }
@@ -100,7 +107,7 @@ struct SeedKeySheet: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Set Up Key Authentication")
                 .font(.headline)
-            Text(host.title)
+            Text(loginTarget)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -234,7 +241,8 @@ struct SeedKeySheet: View {
         let logURL = tmp.appendingPathComponent("sshcm-log-\(token)")
 
         let escapedKey = shellQuote(key.path)
-        let escapedAlias = shellQuote(alias)
+        let target = userOverride.map { "\($0)@\(alias)" } ?? alias
+        let escapedAlias = shellQuote(target)
         let escapedStatus = shellQuote(statusURL.path)
         let escapedLog = shellQuote(logURL.path)
 

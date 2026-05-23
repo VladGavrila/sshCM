@@ -44,6 +44,11 @@ enum SSHConfigParser {
                 continue
             }
 
+            if currentHost != nil, let parsed = parseAlternateUsersComment(trimmed) {
+                currentHost?.alternateUsers = parsed
+                continue
+            }
+
             if let kw = keyword, kw.caseInsensitiveCompare("Match") == .orderedSame {
                 flushHost()
                 inMatchBlock = true
@@ -100,10 +105,20 @@ enum SSHConfigParser {
     }
 
     static let searchAliasesMarker = "# sshCM-aliases:"
+    static let alternateUsersMarker = "# sshCM-users:"
 
     private static func parseSearchAliasesComment(_ trimmed: String) -> [String]? {
         guard trimmed.lowercased().hasPrefix(searchAliasesMarker.lowercased()) else { return nil }
         let payload = trimmed.dropFirst(searchAliasesMarker.count)
+        return payload
+            .split(separator: ",", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    private static func parseAlternateUsersComment(_ trimmed: String) -> [String]? {
+        guard trimmed.lowercased().hasPrefix(alternateUsersMarker.lowercased()) else { return nil }
+        let payload = trimmed.dropFirst(alternateUsersMarker.count)
         return payload
             .split(separator: ",", omittingEmptySubsequences: true)
             .map { $0.trimmingCharacters(in: .whitespaces) }

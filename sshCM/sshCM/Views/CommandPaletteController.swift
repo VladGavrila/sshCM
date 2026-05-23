@@ -16,7 +16,7 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         var favorites: FavoritesStore
         var tagsStore: TagsStore
         var reachCache: ReachabilityCache
-        var onConnect: (SSHHost) -> Void
+        var onConnect: (SSHHost, String?) -> Void
         var onEdit: (SSHHost) -> Void
         var onCopy: (SSHHost) -> Void
         var onCopyIP: (SSHHost) -> Void
@@ -46,9 +46,9 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         let panel = makePanel()
 
         let content = PalettePanelContent(
-            onConnect: { [weak self] host in
+            onConnect: { [weak self] host, user in
                 self?.close()
-                configuration.onConnect(host)
+                configuration.onConnect(host, user)
             },
             onEdit: { [weak self] host in
                 self?.close()

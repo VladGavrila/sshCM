@@ -7,12 +7,16 @@ struct SettingsView: View {
     @Environment(TagsStore.self) private var tagsStore
 
     @AppStorage("defaultTerminalAppPath") private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
+    @AppStorage("defaultPublicKeyPath") private var defaultPublicKeyPath: String = ""
     @AppStorage("autoCheckForUpdates") private var autoCheck: Bool = true
     @AppStorage(KeyShortcut.StorageKey.enabled) private var hotKeyEnabled: Bool = true
+    @AppStorage(KeyShortcut.Definition.mainWindow.enabledKey)
+    private var mainWindowHotKeyEnabled: Bool = KeyShortcut.Definition.mainWindow.defaultEnabled
     @AppStorage(AppPresentation.storageKey) private var presentationRaw: String = AppPresentation.dock.rawValue
 
     @State private var dropTargetTag: HostTag?
     @State private var draggingTag: HostTag?
+    @State private var discoveredPublicKeys: [URL] = []
 
     var body: some View {
         Form {
@@ -32,6 +36,27 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+            }
+
+            Section {
+                if discoveredPublicKeys.isEmpty {
+                    Text("No public keys found in ~/.ssh.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker("Default public key", selection: $defaultPublicKeyPath) {
+                        Text("Auto (first match)").tag("")
+                        ForEach(discoveredPublicKeys, id: \.path) { url in
+                            Text(url.lastPathComponent).tag(url.path)
+                        }
+                    }
+                }
+            } header: {
+                Text("Public Key for Setup")
+            } footer: {
+                Text("Pre-selected when seeding a key into a host's authorized_keys.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -77,14 +102,18 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("Enable global hotkey", isOn: $hotKeyEnabled)
+                Toggle("Enable Command Palette hotkey", isOn: $hotKeyEnabled)
                 LabeledContent("Open Command Palette") {
-                    ShortcutRecorderView()
+                    ShortcutRecorderView(definition: .palette)
+                }
+                Toggle("Enable Show Main Window hotkey", isOn: $mainWindowHotKeyEnabled)
+                LabeledContent("Show Main Window") {
+                    ShortcutRecorderView(definition: .mainWindow)
                 }
             } header: {
-                Text("Global Hotkey")
+                Text("Global Hotkeys")
             } footer: {
-                Text("System-wide shortcut to open the Command Palette while sshCM is running.")
+                Text("System-wide shortcuts that work while sshCM is running.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -116,6 +145,11 @@ struct SettingsView: View {
         )
         .onAppear {
             autoCheck = updater.autoCheckForUpdates
+            discoveredPublicKeys = PublicKeyDiscovery.discover()
+            if !defaultPublicKeyPath.isEmpty,
+               !discoveredPublicKeys.contains(where: { $0.path == defaultPublicKeyPath }) {
+                defaultPublicKeyPath = ""
+            }
         }
     }
 

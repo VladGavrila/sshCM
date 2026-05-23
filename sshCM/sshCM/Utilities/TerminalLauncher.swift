@@ -4,14 +4,21 @@ import Foundation
 enum TerminalLauncher {
     static let defaultTerminalAppPath = "/System/Applications/Utilities/Terminal.app"
 
-    static func launchSSH(toAlias alias: String, terminalAppPath: String) throws {
+    static func launchSSH(toAlias alias: String, user: String? = nil, terminalAppPath: String) throws {
         let trimmedAlias = alias.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedAlias.isEmpty else {
             throw TerminalLaunchError.invalidAlias
         }
 
-        let escaped = trimmedAlias.replacingOccurrences(of: "'", with: "'\\''")
-        try runScript("clear\nexec ssh '\(escaped)'", terminalAppPath: terminalAppPath)
+        let escapedAlias = trimmedAlias.replacingOccurrences(of: "'", with: "'\\''")
+        var userArg = ""
+        if let user, !user.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let escapedUser = user
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "'", with: "'\\''")
+            userArg = " -l '\(escapedUser)'"
+        }
+        try runScript("clear\nexec ssh\(userArg) '\(escapedAlias)'", terminalAppPath: terminalAppPath)
     }
 
     static func launchCommand(_ command: String, terminalAppPath: String) throws {

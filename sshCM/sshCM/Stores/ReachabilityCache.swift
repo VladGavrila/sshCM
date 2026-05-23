@@ -54,4 +54,14 @@ final class ReachabilityCache {
         guard let pt = probeTarget(for: host) else { return nil }
         return "\(pt.target):\(pt.port)"
     }
+
+    func runProbe(for host: SSHHost) async {
+        guard let probe = Self.probeTarget(for: host),
+              let cacheKey = Self.cacheKey(for: host) else { return }
+        if let cached = status(for: cacheKey), cached != .checking { return }
+        set(.checking, for: cacheKey)
+        let success = await Reachability.probe(host: probe.target, port: probe.port)
+        guard !Task.isCancelled else { return }
+        set(success ? .reachable : .unreachable, for: cacheKey)
+    }
 }

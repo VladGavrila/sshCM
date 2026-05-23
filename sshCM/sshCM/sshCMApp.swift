@@ -29,10 +29,17 @@ struct sshCMApp: App {
     @State private var updater = UpdateChecker()
     @State private var paletteBridge = PaletteBridge()
     @State private var hotKey = GlobalHotKey()
+    @State private var mainWindowHotKey = GlobalHotKey()
 
     @AppStorage(KeyShortcut.StorageKey.enabled) private var hotKeyEnabled: Bool = true
     @AppStorage(KeyShortcut.StorageKey.keyCode) private var hotKeyCode: Int = KeyShortcut.defaultKeyCode
     @AppStorage(KeyShortcut.StorageKey.modifiers) private var hotKeyModifiers: Int = KeyShortcut.defaultModifiers
+    @AppStorage(KeyShortcut.Definition.mainWindow.enabledKey)
+    private var mainWindowHotKeyEnabled: Bool = KeyShortcut.Definition.mainWindow.defaultEnabled
+    @AppStorage(KeyShortcut.Definition.mainWindow.keyCodeKey)
+    private var mainWindowHotKeyCode: Int = KeyShortcut.Definition.mainWindow.defaultKeyCode
+    @AppStorage(KeyShortcut.Definition.mainWindow.modifiersKey)
+    private var mainWindowHotKeyModifiers: Int = KeyShortcut.Definition.mainWindow.defaultModifiers
     @AppStorage(AppPresentation.storageKey) private var presentationRaw: String = AppPresentation.dock.rawValue
 
     private var presentation: AppPresentation {
@@ -54,11 +61,18 @@ struct sshCMApp: App {
                     hotKey.onTrigger = {
                         CommandPaletteController.shared.toggle()
                     }
+                    mainWindowHotKey.onTrigger = {
+                        Self.surfaceMainWindow()
+                    }
                     applyHotKey()
+                    applyMainWindowHotKey()
                 }
                 .onChange(of: hotKeyEnabled) { _, _ in applyHotKey() }
                 .onChange(of: hotKeyCode) { _, _ in applyHotKey() }
                 .onChange(of: hotKeyModifiers) { _, _ in applyHotKey() }
+                .onChange(of: mainWindowHotKeyEnabled) { _, _ in applyMainWindowHotKey() }
+                .onChange(of: mainWindowHotKeyCode) { _, _ in applyMainWindowHotKey() }
+                .onChange(of: mainWindowHotKeyModifiers) { _, _ in applyMainWindowHotKey() }
                 .task { updater.checkAtLaunchIfNeeded() }
                 .frame(minWidth: 990, maxWidth: 1320, minHeight: 390)
         }
@@ -103,12 +117,12 @@ struct sshCMApp: App {
             favorites: favorites,
             tagsStore: tags,
             reachCache: reachCache,
-            onConnect: { host in
+            onConnect: { host, user in
                 guard let alias = host.aliases.first, !alias.isEmpty else { return }
                 let path = UserDefaults.standard.string(forKey: "defaultTerminalAppPath")
                     ?? TerminalLauncher.defaultTerminalAppPath
                 do {
-                    try TerminalLauncher.launchSSH(toAlias: alias, terminalAppPath: path)
+                    try TerminalLauncher.launchSSH(toAlias: alias, user: user, terminalAppPath: path)
                 } catch {
                     let alert = NSAlert()
                     alert.messageText = "Could not open terminal"
@@ -150,6 +164,8 @@ struct sshCMApp: App {
         if let mainWindow {
             if mainWindow.isMiniaturized { mainWindow.deminiaturize(nil) }
             mainWindow.makeKeyAndOrderFront(nil)
+        } else {
+            MainWindowOpener.open?()
         }
     }
 
@@ -160,5 +176,16 @@ struct sshCMApp: App {
             keyCode: UInt32(hotKeyCode),
             modifiers: KeyShortcut.carbonModifiers(from: nsFlags)
         )
+        MenuBarStatusItem.shared.refreshMenu()
+    }
+
+    private func applyMainWindowHotKey() {
+        let nsFlags = NSEvent.ModifierFlags(rawValue: UInt(mainWindowHotKeyModifiers))
+        mainWindowHotKey.reconfigure(
+            enabled: mainWindowHotKeyEnabled,
+            keyCode: UInt32(mainWindowHotKeyCode),
+            modifiers: KeyShortcut.carbonModifiers(from: nsFlags)
+        )
+        MenuBarStatusItem.shared.refreshMenu()
     }
 }
