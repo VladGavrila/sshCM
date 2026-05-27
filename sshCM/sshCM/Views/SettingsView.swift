@@ -7,6 +7,7 @@ struct SettingsView: View {
     @Environment(TagsStore.self) private var tagsStore
 
     @AppStorage("defaultTerminalAppPath") private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
+    @AppStorage(TerminalLauncher.keepSessionOpenKey) private var keepSessionOpen: Bool = true
     @AppStorage("defaultPublicKeyPath") private var defaultPublicKeyPath: String = ""
     @AppStorage("autoCheckForUpdates") private var autoCheck: Bool = true
     @AppStorage(KeyShortcut.StorageKey.enabled) private var hotKeyEnabled: Bool = true
@@ -36,6 +37,11 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+
+                Toggle("Keep terminal open after session ends", isOn: $keepSessionOpen)
+                Text("Stays in an interactive shell when ssh exits (logout or connection reset) so you can review the session. Turn off to close the tab automatically.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section {

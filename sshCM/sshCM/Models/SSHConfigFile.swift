@@ -40,6 +40,27 @@ struct SSHConfigFile {
         blocks[idx] = .host(host)
     }
 
+    /// Reuses the ids of hosts from a previous version of this file, matched by
+    /// primary alias, so host identity survives a reparse. Without this, every
+    /// reload assigns fresh UUIDs and orphans any host reference captured before
+    /// the reload (e.g. a host being edited from the command palette).
+    mutating func preserveIDs(from old: SSHConfigFile) {
+        var idsByAlias: [String: [UUID]] = [:]
+        for host in old.hosts {
+            guard let alias = host.aliases.first else { continue }
+            idsByAlias[alias, default: []].append(host.id)
+        }
+        blocks = blocks.map { block in
+            guard case .host(var h) = block,
+                  let alias = h.aliases.first,
+                  var queue = idsByAlias[alias], !queue.isEmpty
+            else { return block }
+            h.id = queue.removeFirst()
+            idsByAlias[alias] = queue
+            return .host(h)
+        }
+    }
+
     private var endsWithBlankLine: Bool {
         guard let last = blocks.last else { return true }
         if case .raw(let s) = last, s.isEmpty { return true }

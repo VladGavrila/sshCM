@@ -20,7 +20,9 @@ final class ConfigStore {
             }
             let data = try Data(contentsOf: fileURL)
             let text = String(data: data, encoding: .utf8) ?? ""
-            file = SSHConfigParser.parse(text)
+            var parsed = SSHConfigParser.parse(text)
+            parsed.preserveIDs(from: file)
+            file = parsed
         } catch {
             loadError = error.localizedDescription
         }

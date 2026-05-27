@@ -4,6 +4,17 @@ import Foundation
 enum TerminalLauncher {
     static let defaultTerminalAppPath = "/System/Applications/Utilities/Terminal.app"
 
+    /// When true (the default), the launch script drops into an interactive
+    /// login shell after `ssh` exits so the tab stays open for review instead
+    /// of closing on logout/reset.
+    static let keepSessionOpenKey = "keepTerminalOpenAfterSession"
+
+    private static var keepSessionOpen: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: keepSessionOpenKey) != nil else { return true }
+        return defaults.bool(forKey: keepSessionOpenKey)
+    }
+
     static func launchSSH(toAlias alias: String, user: String? = nil, terminalAppPath: String) throws {
         let trimmedAlias = alias.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedAlias.isEmpty else {
@@ -18,7 +29,20 @@ enum TerminalLauncher {
                 .replacingOccurrences(of: "'", with: "'\\''")
             userArg = " -l '\(escapedUser)'"
         }
-        try runScript("clear\nexec ssh\(userArg) '\(escapedAlias)'", terminalAppPath: terminalAppPath)
+
+        let sshCommand = "ssh\(userArg) '\(escapedAlias)'"
+        let body: String
+        if keepSessionOpen {
+            body = """
+            clear
+            \(sshCommand)
+            echo '[sshCM] Session ended — returning to shell.'
+            exec "$SHELL" -l
+            """
+        } else {
+            body = "clear\nexec \(sshCommand)"
+        }
+        try runScript(body, terminalAppPath: terminalAppPath)
     }
 
     static func launchCommand(_ command: String, terminalAppPath: String) throws {

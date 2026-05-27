@@ -1,7 +1,7 @@
 import Foundation
 
 struct SSHHost: Identifiable, Hashable {
-    let id: UUID
+    var id: UUID
     var aliases: [String]
     var searchAliases: [String]
     var hostName: String?
