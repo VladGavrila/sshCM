@@ -4,6 +4,7 @@ struct AddHostSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ConfigStore.self) private var store
     @Environment(TagsStore.self) private var tagsStore
+    @Environment(HostKeyBypassStore.self) private var bypassStore
 
     let editing: SSHHost?
     var onSaved: ((SSHHost, _ isNew: Bool, _ addedAlternateUsers: [String]) -> Void)?
@@ -19,6 +20,7 @@ struct AddHostSheet: View {
     @State private var alternateUsers: String
     @State private var tag: HostTag?
     @State private var showTagPicker: Bool = false
+    @State private var hasBypass: Bool = false
 
     init(
         editing: SSHHost? = nil,
@@ -105,6 +107,24 @@ struct AddHostSheet: View {
                     }
                 }
 
+                if isEditing && hasBypass {
+                    Section("Security") {
+                        HStack(spacing: 10) {
+                            Image(systemName: "lock.open.fill")
+                                .foregroundStyle(.orange)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Host key checking is bypassed")
+                                    .font(.callout)
+                                Text("Connections skip strict host-key verification.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Remove Bypass", role: .destructive, action: removeBypass)
+                        }
+                    }
+                }
+
                 Section {
                     DisclosureGroup("Advanced", isExpanded: advancedBinding) {
                         VStack(alignment: .leading, spacing: 8) {
@@ -146,7 +166,16 @@ struct AddHostSheet: View {
         }
         .frame(minWidth: 460, minHeight: 300)
         .animation(.easeInOut(duration: 0.25), value: showAdvanced)
-        .onAppear(perform: loadExistingTag)
+        .onAppear {
+            loadExistingTag()
+            hasBypass = editing?.aliases.first.map { bypassStore.isBypassed($0) } ?? false
+        }
+    }
+
+    private func removeBypass() {
+        guard let alias = editing?.aliases.first else { return }
+        bypassStore.setBypassed(false, for: alias)
+        hasBypass = false
     }
 
     private var tagButton: some View {
@@ -201,6 +230,10 @@ struct AddHostSheet: View {
             store.update(updated)
             if let oldAlias = original.aliases.first, oldAlias != primaryAlias {
                 tagsStore.remove(alias: oldAlias)
+                if bypassStore.isBypassed(oldAlias) {
+                    bypassStore.setBypassed(false, for: oldAlias)
+                    bypassStore.setBypassed(true, for: primaryAlias)
+                }
             }
             savedHost = updated
             isNew = false

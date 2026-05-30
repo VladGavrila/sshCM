@@ -31,16 +31,33 @@ final class ConfigStore {
     func add(_ host: SSHHost) {
         file.append(host: host)
         persist()
+        publishHostsIfEnabled()
     }
 
     func remove(id: UUID) {
         file.remove(id: id)
         persist()
+        publishHostsIfEnabled()
     }
 
     func update(_ host: SSHHost) {
         file.update(host)
         persist()
+        publishHostsIfEnabled()
+    }
+
+    /// Re-syncs the `/etc/hosts` managed block after a host change, when the
+    /// feature is enabled. No-op (and no admin prompt) unless the block actually
+    /// changes.
+    func publishHostsIfEnabled() {
+        guard HostsFilePublisher.isEnabled() else { return }
+        let hosts = file.hosts
+        Task {
+            let result = await HostsFilePublisher.sync(hosts: hosts)
+            if case .failed(let message) = result {
+                loadError = "Could not update /etc/hosts: \(message)"
+            }
+        }
     }
 
     private func persist() {

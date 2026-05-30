@@ -22,10 +22,22 @@ enum ReachStatus: Equatable {
     }
 }
 
+/// Second-pass result: whether the host's SSH key still matches `known_hosts`.
+/// Only `.changed` surfaces a warning in the UI; everything else is silent.
+enum HostKeyState: Equatable {
+    case unchecked, checking, ok, changed(fingerprint: String)
+
+    var isChanged: Bool {
+        if case .changed = self { return true }
+        return false
+    }
+}
+
 @MainActor
 @Observable
 final class ReachabilityCache {
     private var statuses: [String: ReachStatus] = [:]
+    private var keyStatuses: [String: HostKeyState] = [:]
     private(set) var epoch: Int = 0
 
     func status(for key: String) -> ReachStatus? {
@@ -36,8 +48,23 @@ final class ReachabilityCache {
         statuses[key] = status
     }
 
+    func keyStatus(for key: String) -> HostKeyState {
+        keyStatuses[key] ?? .unchecked
+    }
+
+    func setKeyStatus(_ status: HostKeyState, for key: String) {
+        keyStatuses[key] = status
+    }
+
+    /// The host-key warning state for a host, if its probe target resolves.
+    func keyState(for host: SSHHost) -> HostKeyState {
+        guard let cacheKey = Self.cacheKey(for: host) else { return .unchecked }
+        return keyStatus(for: cacheKey)
+    }
+
     func clear() {
         statuses.removeAll()
+        keyStatuses.removeAll()
         epoch &+= 1
     }
 
@@ -63,5 +90,27 @@ final class ReachabilityCache {
         let success = await Reachability.probe(host: probe.target, port: probe.port)
         guard !Task.isCancelled else { return }
         set(success ? .reachable : .unreachable, for: cacheKey)
+        if success {
+            await runKeyCheck(for: host)
+        }
+    }
+
+    /// Second pass: only runs for reachable hosts (so it never eats a keyscan
+    /// timeout on a dead host) and only once per host per epoch.
+    func runKeyCheck(for host: SSHHost) async {
+        guard let probe = Self.probeTarget(for: host),
+              let cacheKey = Self.cacheKey(for: host) else { return }
+        switch keyStatus(for: cacheKey) {
+        case .unchecked: break
+        default: return
+        }
+        setKeyStatus(.checking, for: cacheKey)
+        let status = await HostKeyVerifier.verify(host: probe.target, port: probe.port)
+        guard !Task.isCancelled else { return }
+        switch status {
+        case .changed(let fp): setKeyStatus(.changed(fingerprint: fp), for: cacheKey)
+        case .ok: setKeyStatus(.ok, for: cacheKey)
+        case .unknown, .indeterminate: setKeyStatus(.ok, for: cacheKey)
+        }
     }
 }

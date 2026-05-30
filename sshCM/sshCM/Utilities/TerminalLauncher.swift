@@ -15,7 +15,12 @@ enum TerminalLauncher {
         return defaults.bool(forKey: keepSessionOpenKey)
     }
 
-    static func launchSSH(toAlias alias: String, user: String? = nil, terminalAppPath: String) throws {
+    static func launchSSH(
+        toAlias alias: String,
+        user: String? = nil,
+        bypassHostKey: Bool = false,
+        terminalAppPath: String
+    ) throws {
         let trimmedAlias = alias.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedAlias.isEmpty else {
             throw TerminalLaunchError.invalidAlias
@@ -30,7 +35,13 @@ enum TerminalLauncher {
             userArg = " -l '\(escapedUser)'"
         }
 
-        let sshCommand = "ssh\(userArg) '\(escapedAlias)'"
+        // One-off bypass of strict host-key checking. Sending known hosts to
+        // /dev/null also avoids re-recording the (possibly malicious) key.
+        let bypassArgs = bypassHostKey
+            ? " -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+            : ""
+
+        let sshCommand = "ssh\(userArg)\(bypassArgs) '\(escapedAlias)'"
         let body: String
         if keepSessionOpen {
             body = """

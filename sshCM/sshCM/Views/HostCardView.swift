@@ -11,12 +11,21 @@ struct HostCardView: View {
     @Environment(FavoritesStore.self) private var favorites
     @Environment(TagsStore.self) private var tagsStore
     @Environment(ReachabilityCache.self) private var reachCache
+    @Environment(HostKeyBypassStore.self) private var bypassStore
 
     private var reachStatus: ReachStatus {
         guard let cacheKey = ReachabilityCache.cacheKey(for: host) else {
             return .unreachable
         }
         return reachCache.status(for: cacheKey) ?? .checking
+    }
+
+    private var hostKeyChanged: Bool {
+        reachCache.keyState(for: host).isChanged
+    }
+
+    private var hostKeyBypassed: Bool {
+        host.aliases.first.map { bypassStore.isBypassed($0) } ?? false
     }
 
     private var favoriteAlias: String? {
@@ -68,6 +77,11 @@ struct HostCardView: View {
                     Image(systemName: "arrow.triangle.branch")
                         .foregroundStyle(.secondary)
                         .help("Used as a jump host by other entries")
+                }
+                if hostKeyBypassed {
+                    Image(systemName: "lock.open.fill")
+                        .foregroundStyle(.orange)
+                        .help("Host key checking is bypassed for this host")
                 }
 
                 Spacer()
@@ -140,6 +154,9 @@ struct HostCardView: View {
                 .font(.headline)
                 .lineLimit(1)
                 .truncationMode(.tail)
+            if hostKeyChanged {
+                HostKeyWarningGlyph()
+            }
             Spacer()
             favoriteButton
         }

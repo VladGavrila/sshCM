@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @Environment(UpdateChecker.self) private var updater
     @Environment(TagsStore.self) private var tagsStore
+    @Environment(ConfigStore.self) private var store
 
     @AppStorage("defaultTerminalAppPath") private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
     @AppStorage(TerminalLauncher.keepSessionOpenKey) private var keepSessionOpen: Bool = true
@@ -14,10 +15,12 @@ struct SettingsView: View {
     @AppStorage(KeyShortcut.Definition.mainWindow.enabledKey)
     private var mainWindowHotKeyEnabled: Bool = KeyShortcut.Definition.mainWindow.defaultEnabled
     @AppStorage(AppPresentation.storageKey) private var presentationRaw: String = AppPresentation.dock.rawValue
+    @AppStorage(HostsFilePublisher.defaultsKey) private var publishToHostsFile: Bool = false
 
     @State private var dropTargetTag: HostTag?
     @State private var draggingTag: HostTag?
     @State private var discoveredPublicKeys: [URL] = []
+    @State private var hostsFileAlert: String?
 
     var body: some View {
         Form {
@@ -108,6 +111,19 @@ struct SettingsView: View {
             }
 
             Section {
+                Toggle("Make aliases resolvable system-wide", isOn: $publishToHostsFile)
+                    .onChange(of: publishToHostsFile) { _, enabled in
+                        Task { await applyHostsFileToggle(enabled) }
+                    }
+            } header: {
+                Text("System-Wide Name Resolution")
+            } footer: {
+                Text("SSH host aliases normally work only inside ssh. Enable this to also write them into /etc/hosts so other apps — Screen Sharing, VNC, browsers — can reach a host by its alias. Only hosts whose HostName is a literal IP address are published. Because /etc/hosts is a protected system file, macOS asks for an administrator password whenever the published list changes. sshCM keeps the list in sync as you add, edit, and remove hosts, and removes its entries when you turn this off.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Enable Command Palette hotkey", isOn: $hotKeyEnabled)
                 LabeledContent("Open Command Palette") {
                     ShortcutRecorderView(definition: .palette)
@@ -141,6 +157,18 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .alert(
+            "Could not update /etc/hosts",
+            isPresented: Binding(
+                get: { hostsFileAlert != nil },
+                set: { if !$0 { hostsFileAlert = nil } }
+            ),
+            presenting: hostsFileAlert
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { message in
+            Text(message)
+        }
         .frame(width: 520, height: 720)
         .background(
             Button("") { NSApp.keyWindow?.performClose(nil) }
@@ -156,6 +184,24 @@ struct SettingsView: View {
                !discoveredPublicKeys.contains(where: { $0.path == defaultPublicKeyPath }) {
                 defaultPublicKeyPath = ""
             }
+        }
+    }
+
+    /// Applies the managed block right after the toggle flips. If the user
+    /// cancels the admin prompt or the write fails, revert the toggle so it
+    /// reflects what's actually in /etc/hosts.
+    private func applyHostsFileToggle(_ enabled: Bool) async {
+        let result = enabled
+            ? await HostsFilePublisher.sync(hosts: store.file.hosts)
+            : await HostsFilePublisher.clear()
+        switch result {
+        case .unchanged, .updated:
+            break
+        case .cancelled:
+            publishToHostsFile = !enabled
+        case .failed(let message):
+            publishToHostsFile = !enabled
+            hostsFileAlert = message
         }
     }
 
@@ -298,6 +344,7 @@ struct SettingsView: View {
 
 #Preview {
     SettingsView()
+        .environment(ConfigStore())
         .environment(UpdateChecker())
         .environment(TagsStore())
 }

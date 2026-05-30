@@ -26,6 +26,7 @@ struct sshCMApp: App {
     @State private var favorites = FavoritesStore()
     @State private var tags = TagsStore()
     @State private var reachCache = ReachabilityCache()
+    @State private var bypassStore = HostKeyBypassStore()
     @State private var updater = UpdateChecker()
     @State private var paletteBridge = PaletteBridge()
     @State private var hotKey = GlobalHotKey()
@@ -53,6 +54,7 @@ struct sshCMApp: App {
                 .environment(favorites)
                 .environment(tags)
                 .environment(reachCache)
+                .environment(bypassStore)
                 .environment(updater)
                 .environment(paletteBridge)
                 .onAppear {
@@ -105,6 +107,7 @@ struct sshCMApp: App {
 
         Settings {
             SettingsView()
+                .environment(store)
                 .environment(updater)
                 .environment(tags)
         }
@@ -117,12 +120,17 @@ struct sshCMApp: App {
             favorites: favorites,
             tagsStore: tags,
             reachCache: reachCache,
-            onConnect: { host, user in
-                guard let alias = host.aliases.first, !alias.isEmpty else { return }
+            onConnect: { [reachCache, bypassStore] host, user in
                 let path = UserDefaults.standard.string(forKey: "defaultTerminalAppPath")
                     ?? TerminalLauncher.defaultTerminalAppPath
                 do {
-                    try TerminalLauncher.launchSSH(toAlias: alias, user: user, terminalAppPath: path)
+                    try HostConnector.connect(
+                        to: host,
+                        as: user,
+                        reachCache: reachCache,
+                        bypassStore: bypassStore,
+                        terminalAppPath: path
+                    )
                 } catch {
                     let alert = NSAlert()
                     alert.messageText = "Could not open terminal"

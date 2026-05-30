@@ -202,9 +202,14 @@ struct CommandPaletteView: View {
                 .foregroundStyle(isFav ? Color.yellow : Color.secondary)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 2) {
-                Text(host.title)
-                    .font(.body)
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(host.title)
+                        .font(.body)
+                        .lineLimit(1)
+                    if reachCache.keyState(for: host).isChanged {
+                        HostKeyWarningGlyph(size: 11)
+                    }
+                }
                 if let subtitle {
                     Text(subtitle)
                         .font(.caption)
@@ -424,10 +429,14 @@ struct CommandPaletteView: View {
               let probe = ReachabilityCache.probeTarget(for: host),
               let key = ReachabilityCache.cacheKey(for: host) else { return }
         reachCache.set(.checking, for: key)
+        reachCache.setKeyStatus(.unchecked, for: key)
         Task {
             let success = await Reachability.probe(host: probe.target, port: probe.port)
             await MainActor.run {
                 reachCache.set(success ? .reachable : .unreachable, for: key)
+            }
+            if success {
+                await reachCache.runKeyCheck(for: host)
             }
         }
     }

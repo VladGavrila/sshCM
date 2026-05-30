@@ -16,6 +16,7 @@ struct ContentView: View {
     @Environment(FavoritesStore.self) private var favorites
     @Environment(TagsStore.self) private var tagsStore
     @Environment(ReachabilityCache.self) private var reachCache
+    @Environment(HostKeyBypassStore.self) private var bypassStore
     @Environment(UpdateChecker.self) private var updater
     @Environment(PaletteBridge.self) private var paletteBridge
 
@@ -362,7 +363,13 @@ struct ContentView: View {
             return
         }
         do {
-            try TerminalLauncher.launchSSH(toAlias: alias, user: user, terminalAppPath: terminalAppPath)
+            try HostConnector.connect(
+                to: host,
+                as: user,
+                reachCache: reachCache,
+                bypassStore: bypassStore,
+                terminalAppPath: terminalAppPath
+            )
         } catch {
             connectError = error.localizedDescription
         }
