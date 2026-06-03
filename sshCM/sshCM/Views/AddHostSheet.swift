@@ -21,6 +21,14 @@ struct AddHostSheet: View {
     @State private var tag: HostTag?
     @State private var showTagPicker: Bool = false
     @State private var hasBypass: Bool = false
+    /// Transient messages shown when the user types a character that isn't valid in
+    /// an alias (e.g. a space); the character is stripped rather than entered.
+    @State private var aliasRejectionNotice: String? = nil
+    @State private var searchAliasRejectionNotice: String? = nil
+    /// Guards against the re-entrant `onChange` fired by our own sanitising write,
+    /// which would otherwise immediately clear the rejection notice.
+    @State private var suppressAliasFilter = false
+    @State private var suppressSearchFilter = false
 
     init(
         editing: SSHHost? = nil,
@@ -28,8 +36,8 @@ struct AddHostSheet: View {
     ) {
         self.editing = editing
         self.onSaved = onSaved
-        let initialAlias = editing?.aliases.joined(separator: " ") ?? ""
-        let initialSearchAliases = editing?.searchAliases.joined(separator: ", ") ?? ""
+        let initialAlias = editing?.aliases.first ?? ""
+        let initialSearchAliases = editing?.searchAliases.joined(separator: ",") ?? ""
         let initialHostName = editing?.hostName ?? ""
         let initialUser = editing?.user ?? ""
         let initialPort = editing.flatMap { $0.port.map(String.init) } ?? "22"
@@ -61,6 +69,48 @@ struct AddHostSheet: View {
         return false
     }
 
+    private static let aliasRejectionMessage =
+        "Spaces and special characters aren't allowed — use letters, digits, - . or _."
+    private static let searchAliasRejectionMessage =
+        "Separate aliases with commas — spaces and special characters aren't allowed."
+
+    /// Strips every character that isn't valid in an SSH alias / `/etc/hosts`
+    /// hostname, using the shared allowed set. The search-aliases field also keeps
+    /// commas, which separate the individual aliases.
+    private static func sanitizeAlias(_ value: String, allowComma: Bool) -> String {
+        var allowed = HostsFilePublisher.hostnameAllowedCharacters
+        if allowComma { allowed.insert(charactersIn: ",") }
+        return String(String.UnicodeScalarView(
+            value.unicodeScalars.filter { allowed.contains($0) }
+        ))
+    }
+
+    /// Live-filters a text field as the user types: disallowed characters are
+    /// dropped rather than entered (so they never render), and `notice` is set the
+    /// moment one is rejected. The `suppress` flag absorbs the re-entrant
+    /// `onChange` triggered by our own write so the notice isn't instantly cleared.
+    private func filterAliasInput(
+        _ newValue: String,
+        into text: Binding<String>,
+        allowComma: Bool,
+        suppress: Binding<Bool>,
+        notice: Binding<String?>,
+        message: String
+    ) {
+        if suppress.wrappedValue {
+            suppress.wrappedValue = false
+            return
+        }
+        let sanitized = AddHostSheet.sanitizeAlias(newValue, allowComma: allowComma)
+        if sanitized != newValue {
+            suppress.wrappedValue = true
+            text.wrappedValue = sanitized
+            notice.wrappedValue = message
+        } else {
+            notice.wrappedValue = nil
+        }
+    }
+
     private var advancedBinding: Binding<Bool> {
         Binding(
             get: { showAdvanced },
@@ -72,9 +122,28 @@ struct AddHostSheet: View {
 
     private var canSave: Bool {
         !alias.trimmed.isEmpty
+        && aliasError == nil
         && !hostName.trimmed.isEmpty
         && !user.trimmed.isEmpty
         && portIsValid
+    }
+
+    /// Validation for the SSH alias: it must be a single token usable as a `Host`
+    /// pattern (no spaces/special chars) and unique across hosts, otherwise two
+    /// hosts can claim the same alias and `ssh <alias>` connects to the wrong one.
+    private var aliasError: String? {
+        let value = alias.trimmed
+        guard !value.isEmpty else { return nil }
+        guard HostsFilePublisher.isPublishableHostname(value) else {
+            return "Alias can't contain spaces or special characters (use - . _)."
+        }
+        let collides = store.file.hosts.contains { host in
+            host.id != editing?.id && host.aliases.contains(value)
+        }
+        if collides {
+            return "Alias '\(value)' is already used by another host."
+        }
+        return nil
     }
 
     private var isEditing: Bool { editing != nil }
@@ -85,13 +154,43 @@ struct AddHostSheet: View {
                 Section("Host") {
                     HStack(spacing: 8) {
                         TextField("Alias", text: $alias, prompt: Text("e.g. prod-bastion"))
+                            .onChange(of: alias) { _, newValue in
+                                filterAliasInput(
+                                    newValue,
+                                    into: $alias,
+                                    allowComma: false,
+                                    suppress: $suppressAliasFilter,
+                                    notice: $aliasRejectionNotice,
+                                    message: AddHostSheet.aliasRejectionMessage
+                                )
+                            }
                         tagButton
+                    }
+                    if let message = aliasRejectionNotice ?? aliasError {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.red)
                     }
                     TextField(
                         "Search aliases",
                         text: $searchAliases,
                         prompt: Text("optional, comma-separated — search only")
                     )
+                    .onChange(of: searchAliases) { _, newValue in
+                        filterAliasInput(
+                            newValue,
+                            into: $searchAliases,
+                            allowComma: true,
+                            suppress: $suppressSearchFilter,
+                            notice: $searchAliasRejectionNotice,
+                            message: AddHostSheet.searchAliasRejectionMessage
+                        )
+                    }
+                    if let searchAliasRejectionNotice {
+                        Text(searchAliasRejectionNotice)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
                     TextField("HostName (IP or FQDN)", text: $hostName, prompt: Text("e.g. 10.0.0.4 or db.example.com"))
                     TextField("User", text: $user, prompt: Text("e.g. ubuntu"))
                     TextField(
@@ -201,9 +300,9 @@ struct AddHostSheet: View {
     }
 
     private func save() {
-        let aliases = alias.trimmed.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-        guard !aliases.isEmpty else { return }
-        let primaryAlias = aliases[0]
+        let primaryAlias = alias.trimmed
+        guard !primaryAlias.isEmpty else { return }
+        let aliases = [primaryAlias]
         let parsedSearchAliases = searchAliases
             .split(separator: ",", omittingEmptySubsequences: true)
             .map { $0.trimmingCharacters(in: .whitespaces) }

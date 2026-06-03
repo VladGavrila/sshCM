@@ -120,13 +120,18 @@ enum HostsFilePublisher {
         }
     }
 
+    /// Characters allowed in a hostname / SSH alias: DNS-label characters only
+    /// (letters, digits, hyphen, dot, underscore). Everything else is excluded —
+    /// whitespace, SSH glob/negation/comment characters (`* ? ! #`), `@`, `:`,
+    /// `/`, quotes, and any other punctuation.
+    static let hostnameAllowedCharacters = CharacterSet(charactersIn:
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
+
     /// A hostname safe to write into `/etc/hosts`: non-empty, no whitespace, no
     /// SSH glob/negation characters, only DNS-label characters.
     static func isPublishableHostname(_ value: String) -> Bool {
         guard !value.isEmpty, value.count <= 253 else { return false }
-        let allowed = CharacterSet(charactersIn:
-            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
-        return value.unicodeScalars.allSatisfy { allowed.contains($0) }
+        return value.unicodeScalars.allSatisfy { hostnameAllowedCharacters.contains($0) }
     }
 
     // MARK: - Privileged write
