@@ -10,6 +10,12 @@ struct SSHHost: Identifiable, Hashable {
     var identityFile: String?
     var proxyJump: String?
     var alternateUsers: [String]
+    /// On-demand `-L` forwards (display label + spec). Stored as sshCM metadata
+    /// comments, not native `LocalForward` directives, so plain connects don't
+    /// forward — see `PortForward`.
+    var localForwards: [PortForward]
+    /// On-demand `-R` (reverse) forwards.
+    var remoteForwards: [PortForward]
     var rawLines: [String]
 
     init(
@@ -22,6 +28,8 @@ struct SSHHost: Identifiable, Hashable {
         identityFile: String? = nil,
         proxyJump: String? = nil,
         alternateUsers: [String] = [],
+        localForwards: [PortForward] = [],
+        remoteForwards: [PortForward] = [],
         rawLines: [String] = []
     ) {
         self.id = id
@@ -33,7 +41,13 @@ struct SSHHost: Identifiable, Hashable {
         self.identityFile = identityFile
         self.proxyJump = proxyJump
         self.alternateUsers = alternateUsers
+        self.localForwards = localForwards
+        self.remoteForwards = remoteForwards
         self.rawLines = rawLines
+    }
+
+    var hasForwards: Bool {
+        !localForwards.isEmpty || !remoteForwards.isEmpty
     }
 
     var title: String {

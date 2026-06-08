@@ -18,6 +18,8 @@ struct AddHostSheet: View {
     @State private var identityFile: String
     @State private var proxyJump: String
     @State private var alternateUsers: String
+    @State private var forwards: [ForwardDraft]
+    @State private var showForwarding: Bool
     @State private var tag: HostTag?
     @State private var showTagPicker: Bool = false
     @State private var hasBypass: Bool = false
@@ -45,6 +47,9 @@ struct AddHostSheet: View {
         let initialProxy = editing?.proxyJump ?? ""
         let initialAlternateUsers = editing?.alternateUsers.joined(separator: ", ") ?? ""
         let hasAdvanced = !initialIdentity.isEmpty || !initialProxy.isEmpty
+        let initialForwards =
+            (editing?.localForwards.map { ForwardDraft(direction: .local, parsing: $0.spec, note: $0.note) } ?? [])
+            + (editing?.remoteForwards.map { ForwardDraft(direction: .remote, parsing: $0.spec, note: $0.note) } ?? [])
 
         _alias = State(initialValue: initialAlias)
         _searchAliases = State(initialValue: initialSearchAliases)
@@ -54,6 +59,8 @@ struct AddHostSheet: View {
         _identityFile = State(initialValue: initialIdentity)
         _proxyJump = State(initialValue: initialProxy)
         _alternateUsers = State(initialValue: initialAlternateUsers)
+        _forwards = State(initialValue: initialForwards)
+        _showForwarding = State(initialValue: !initialForwards.isEmpty)
         _showAdvanced = State(initialValue: hasAdvanced)
     }
 
@@ -126,6 +133,39 @@ struct AddHostSheet: View {
         && !hostName.trimmed.isEmpty
         && !user.trimmed.isEmpty
         && portIsValid
+        && forwardsAreValid
+    }
+
+    /// Every non-empty forward row must be fully valid. Fully-empty rows are
+    /// ignored on save, so they don't block it.
+    private var forwardsAreValid: Bool {
+        forwards.allSatisfy { draftIsEmpty($0) || draftIsComplete($0) }
+    }
+
+    private func draftIsEmpty(_ d: ForwardDraft) -> Bool {
+        d.bindPort.trimmed.isEmpty && d.host.trimmed.isEmpty && d.hostPort.trimmed.isEmpty
+    }
+
+    private func draftIsComplete(_ d: ForwardDraft) -> Bool {
+        isValidPortField(d.bindPort) && isValidHostField(d.host) && isValidPortField(d.hostPort)
+    }
+
+    private func isValidPortField(_ value: String) -> Bool {
+        guard let p = Int(value.trimmed) else { return false }
+        return p > 0 && p <= 65535
+    }
+
+    private func isValidHostField(_ value: String) -> Bool {
+        HostsFilePublisher.isPublishableHostname(value.trimmed)
+    }
+
+    private var forwardingBinding: Binding<Bool> {
+        Binding(
+            get: { showForwarding },
+            set: { newValue in
+                withAnimation(.easeInOut(duration: 0.25)) { showForwarding = newValue }
+            }
+        )
     }
 
     /// Validation for the SSH alias: it must be a single token usable as a `Host`
@@ -248,6 +288,12 @@ struct AddHostSheet: View {
                         .padding(.top, 4)
                     }
                 }
+
+                Section {
+                    DisclosureGroup("Port Forwarding", isExpanded: forwardingBinding) {
+                        forwardingContent
+                    }
+                }
             }
             .formStyle(.grouped)
 
@@ -263,11 +309,136 @@ struct AddHostSheet: View {
             }
             .padding(12)
         }
-        .frame(minWidth: 460, minHeight: 300)
+        .frame(minWidth: 540, minHeight: 300)
         .animation(.easeInOut(duration: 0.25), value: showAdvanced)
         .onAppear {
             loadExistingTag()
             hasBypass = editing?.aliases.first.map { bypassStore.isBypassed($0) } ?? false
+        }
+    }
+
+    @ViewBuilder
+    private var forwardingContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Forwards are saved with the host but applied only when you pick a tunnel action — a plain connect never forwards.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(Array($forwards.enumerated()), id: \.element.id) { index, $draft in
+                if index > 0 { Divider() }
+                forwardRow($draft)
+            }
+
+            Button {
+                forwards.append(ForwardDraft(direction: .local))
+            } label: {
+                Label("Add forwarding", systemImage: "plus.circle")
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    private func forwardRow(_ draft: Binding<ForwardDraft>) -> some View {
+        let d = draft.wrappedValue
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                Picker("", selection: draft.direction) {
+                    Text("Local").tag(ForwardDraft.Direction.local)
+                    Text("Reverse").tag(ForwardDraft.Direction.remote)
+                }
+                .labelsHidden()
+                .frame(width: 90)
+                .help(forwardHelp(d.direction))
+
+                TextField("", text: digitsBinding(draft.bindPort), prompt: Text("8080"))
+                    .frame(width: 58)
+                helpIcon(bindPortHelp(d.direction))
+                Text(":").foregroundStyle(.secondary)
+                TextField("", text: draft.host, prompt: Text("localhost"))
+                    .frame(minWidth: 80)
+                helpIcon(hostHelp(d.direction))
+                Text(":").foregroundStyle(.secondary)
+                TextField("", text: digitsBinding(draft.hostPort), prompt: Text("8080"))
+                    .frame(width: 58)
+                helpIcon(hostPortHelp(d.direction))
+
+                Button(role: .destructive) {
+                    forwards.removeAll { $0.id == d.id }
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                }
+                .buttonStyle(.borderless)
+                .help("Remove this forward")
+            }
+
+            TextField("", text: draft.note, prompt: Text("Description"))
+
+            if !draftIsEmpty(d), !d.host.trimmed.isEmpty, !isValidHostField(d.host) {
+                forwardError("Host must be a valid IP or hostname (use letters, digits, - . _).")
+            }
+            if !draftIsEmpty(d), !draftIsComplete(d),
+               d.host.trimmed.isEmpty || isValidHostField(d.host) {
+                forwardError("Enter a listening port, host, and destination port (1–65535).")
+            }
+        }
+    }
+
+    private func forwardError(_ message: String) -> some View {
+        Text(message)
+            .font(.caption)
+            .foregroundStyle(.red)
+    }
+
+    /// Keeps a text field numeric (and within a port's 5-digit ceiling) by
+    /// stripping anything else as it's typed.
+    private func digitsBinding(_ source: Binding<String>) -> Binding<String> {
+        Binding(
+            get: { source.wrappedValue },
+            set: { source.wrappedValue = String($0.filter(\.isNumber).prefix(5)) }
+        )
+    }
+
+    private func forwardHelp(_ direction: ForwardDraft.Direction) -> String {
+        switch direction {
+        case .local:
+            return "Receive traffic from the server: the bind port opens on this Mac and maps to the host port reached from the server."
+        case .remote:
+            return "Send traffic to remote: the bind port opens on the server and maps to the host port reached from this Mac."
+        }
+    }
+
+    private func helpIcon(_ text: String) -> some View {
+        Image(systemName: "questionmark.circle")
+            .foregroundStyle(.secondary)
+            .help(text)
+    }
+
+    private func bindPortHelp(_ direction: ForwardDraft.Direction) -> String {
+        switch direction {
+        case .local:
+            return "Bind port — opens on this Mac (local). Connect to localhost:<bind port> and traffic is tunneled to the destination on the right."
+        case .remote:
+            return "Bind port — opens on the remote server. Anything connecting to the bind port on the server is tunneled to the destination on the right."
+        }
+    }
+
+    private func hostHelp(_ direction: ForwardDraft.Direction) -> String {
+        switch direction {
+        case .local:
+            return "Destination host, reached from the server's side — e.g. localhost means the server itself."
+        case .remote:
+            return "Destination host, reached from this Mac's side — e.g. localhost means this Mac."
+        }
+    }
+
+    private func hostPortHelp(_ direction: ForwardDraft.Direction) -> String {
+        switch direction {
+        case .local:
+            return "Host port — the port on the destination host (server side) that the tunnel connects to."
+        case .remote:
+            return "Host port — the port on the destination host (this Mac's side) that the tunnel connects to."
         }
     }
 
@@ -314,6 +485,16 @@ struct AddHostSheet: View {
         let oldAlternates = editing?.alternateUsers ?? []
         let addedAlternateUsers = parsedAlternateUsers.filter { !oldAlternates.contains($0) }
 
+        func makeForward(_ d: ForwardDraft) -> PortForward {
+            PortForward(
+                spec: "\(d.bindPort.trimmed):\(d.host.trimmed):\(d.hostPort.trimmed)",
+                note: d.note.trimmed
+            )
+        }
+        let completeForwards = forwards.filter { draftIsComplete($0) }
+        let parsedLocalForwards = completeForwards.filter { $0.direction == .local }.map(makeForward)
+        let parsedRemoteForwards = completeForwards.filter { $0.direction == .remote }.map(makeForward)
+
         let savedHost: SSHHost
         let isNew: Bool
         if let original = editing {
@@ -326,6 +507,8 @@ struct AddHostSheet: View {
             updated.identityFile = identityFile.trimmed.nilIfEmpty
             updated.proxyJump = proxyJump.trimmed.nilIfEmpty
             updated.alternateUsers = parsedAlternateUsers
+            updated.localForwards = parsedLocalForwards
+            updated.remoteForwards = parsedRemoteForwards
             store.update(updated)
             if let oldAlias = original.aliases.first, oldAlias != primaryAlias {
                 tagsStore.remove(alias: oldAlias)
@@ -345,7 +528,9 @@ struct AddHostSheet: View {
                 port: portValue,
                 identityFile: identityFile.trimmed.nilIfEmpty,
                 proxyJump: proxyJump.trimmed.nilIfEmpty,
-                alternateUsers: parsedAlternateUsers
+                alternateUsers: parsedAlternateUsers,
+                localForwards: parsedLocalForwards,
+                remoteForwards: parsedRemoteForwards
             )
             store.add(host)
             savedHost = host
@@ -360,4 +545,57 @@ struct AddHostSheet: View {
 private extension String {
     var trimmed: String { trimmingCharacters(in: .whitespaces) }
     var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+/// A mutable, identifiable row in the Port Forwarding editor. The forward is
+/// split into its three editable parts (bind port / host / host port) plus a
+/// direction and note, so a single list can hold both `-L` and `-R` entries; on
+/// save it's joined into a `port:host:hostport` spec and split back into
+/// `localForwards`/`remoteForwards`.
+private struct ForwardDraft: Identifiable {
+    enum Direction: Hashable { case local, remote }
+    let id = UUID()
+    var direction: Direction
+    var bindPort: String
+    var host: String
+    var hostPort: String
+    var note: String
+
+    init(
+        direction: Direction,
+        bindPort: String = "",
+        host: String = "",
+        hostPort: String = "",
+        note: String = ""
+    ) {
+        self.direction = direction
+        self.bindPort = bindPort
+        self.host = host
+        self.hostPort = hostPort
+        self.note = note
+    }
+
+    /// Splits a stored `[bind:]port:host:hostport` spec into the editable fields.
+    /// The host and host-port are taken from the end (always present); anything
+    /// before them becomes the bind/listen port.
+    init(direction: Direction, parsing spec: String, note: String) {
+        let parts = spec.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        if parts.count >= 3 {
+            self.init(
+                direction: direction,
+                bindPort: parts[0..<(parts.count - 2)].joined(separator: ":"),
+                host: parts[parts.count - 2],
+                hostPort: parts[parts.count - 1],
+                note: note
+            )
+        } else {
+            self.init(
+                direction: direction,
+                bindPort: parts.first ?? "",
+                host: parts.count > 1 ? parts[1] : "",
+                hostPort: "",
+                note: note
+            )
+        }
+    }
 }

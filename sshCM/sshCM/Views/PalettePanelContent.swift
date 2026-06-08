@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PalettePanelContent: View {
     let onConnect: (SSHHost, String?) -> Void
+    let onConnectForwarding: (SSHHost, String?, Bool, Bool) -> Void
     let onEdit: (SSHHost) -> Void
     let onCopy: (SSHHost) -> Void
     let onCopyIP: (SSHHost) -> Void
@@ -16,6 +17,7 @@ struct PalettePanelContent: View {
         CommandPaletteView(
             hosts: sortedHosts,
             onConnect: onConnect,
+            onConnectForwarding: onConnectForwarding,
             onEdit: onEdit,
             onCopy: onCopy,
             onCopyIP: onCopyIP,

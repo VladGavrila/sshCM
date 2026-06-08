@@ -7,6 +7,8 @@ struct HostCardView: View {
     let onDelete: () -> Void
     let onConnect: () -> Void
     let onConnectAs: (String) -> Void
+    /// Connect while applying the host's stored port forwards: `(includeLocal, includeRemote)`.
+    let onConnectForwarding: (Bool, Bool) -> Void
 
     @Environment(FavoritesStore.self) private var favorites
     @Environment(TagsStore.self) private var tagsStore
@@ -68,6 +70,11 @@ struct HostCardView: View {
                         .foregroundStyle(.secondary)
                         .help(v)
                 }
+                if host.hasForwards {
+                    Image(systemName: "arrow.left.arrow.right")
+                        .foregroundStyle(.secondary)
+                        .help(forwardsTooltip)
+                }
                 if let p = host.port, p != 22 {
                     Image(systemName: "number")
                         .foregroundStyle(.secondary)
@@ -118,7 +125,7 @@ struct HostCardView: View {
     @ViewBuilder
     private var connectButton: some View {
         let altUsers = host.alternateUsers.filter { !$0.isEmpty }
-        if altUsers.isEmpty {
+        if altUsers.isEmpty && !host.hasForwards {
             Button(action: onConnect) {
                 Image(systemName: "terminal")
             }
@@ -130,9 +137,12 @@ struct HostCardView: View {
                 Button(primary.isEmpty ? "Connect (default user)" : "Connect as \(primary)") {
                     onConnect()
                 }
-                Divider()
-                ForEach(altUsers, id: \.self) { user in
-                    Button("Connect as \(user)") { onConnectAs(user) }
+                forwardMenuItems
+                if !altUsers.isEmpty {
+                    Divider()
+                    ForEach(altUsers, id: \.self) { user in
+                        Button("Connect as \(user)") { onConnectAs(user) }
+                    }
                 }
             } label: {
                 Image(systemName: "terminal")
@@ -142,8 +152,35 @@ struct HostCardView: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.visible)
             .fixedSize()
-            .help("Connect via SSH — hold to pick a user")
+            .help("Connect via SSH — hold for forwards / users")
         }
+    }
+
+    @ViewBuilder
+    private var forwardMenuItems: some View {
+        if host.hasForwards {
+            Divider()
+            if !host.localForwards.isEmpty {
+                Button("Connect with local forward (-L)") { onConnectForwarding(true, false) }
+            }
+            if !host.remoteForwards.isEmpty {
+                Button("Connect with reverse forward (-R)") { onConnectForwarding(false, true) }
+            }
+            if !host.localForwards.isEmpty && !host.remoteForwards.isEmpty {
+                Button("Connect with both forwards") { onConnectForwarding(true, true) }
+            }
+        }
+    }
+
+    private var forwardsTooltip: String {
+        func describe(_ forwards: [PortForward], label: String) -> [String] {
+            forwards.map { f in
+                let detail = f.note.isEmpty ? f.spec : "\(f.note) — \(f.spec)"
+                return "\(label) \(detail)"
+            }
+        }
+        let lines = describe(host.localForwards, label: "-L") + describe(host.remoteForwards, label: "-R")
+        return lines.joined(separator: "\n")
     }
 
     private var header: some View {

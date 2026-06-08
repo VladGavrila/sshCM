@@ -19,6 +19,8 @@ enum TerminalLauncher {
         toAlias alias: String,
         user: String? = nil,
         bypassHostKey: Bool = false,
+        localForwards: [String] = [],
+        remoteForwards: [String] = [],
         terminalAppPath: String
     ) throws {
         let trimmedAlias = alias.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -41,7 +43,19 @@ enum TerminalLauncher {
             ? " -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
             : ""
 
-        let sshCommand = "ssh\(userArg)\(bypassArgs) '\(escapedAlias)'"
+        // On-demand port forwarding. Only the spec is passed; any user-facing
+        // note lives in the config metadata and never reaches the command line.
+        func forwardArgs(_ specs: [String], flag: String) -> String {
+            specs
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .map { " \(flag) '\($0.replacingOccurrences(of: "'", with: "'\\''"))'" }
+                .joined()
+        }
+        let tunnelArgs = forwardArgs(localForwards, flag: "-L")
+            + forwardArgs(remoteForwards, flag: "-R")
+
+        let sshCommand = "ssh\(userArg)\(bypassArgs)\(tunnelArgs) '\(escapedAlias)'"
         let body: String
         if keepSessionOpen {
             body = """

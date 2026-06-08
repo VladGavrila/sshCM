@@ -49,6 +49,16 @@ enum SSHConfigParser {
                 continue
             }
 
+            if currentHost != nil, let forward = parseForwardComment(trimmed, marker: localForwardMarker) {
+                currentHost?.localForwards.append(forward)
+                continue
+            }
+
+            if currentHost != nil, let forward = parseForwardComment(trimmed, marker: remoteForwardMarker) {
+                currentHost?.remoteForwards.append(forward)
+                continue
+            }
+
             if let kw = keyword, kw.caseInsensitiveCompare("Match") == .orderedSame {
                 flushHost()
                 inMatchBlock = true
@@ -106,6 +116,8 @@ enum SSHConfigParser {
 
     static let searchAliasesMarker = "# sshCM-aliases:"
     static let alternateUsersMarker = "# sshCM-users:"
+    static let localForwardMarker = "# sshCM-localforward:"
+    static let remoteForwardMarker = "# sshCM-remoteforward:"
 
     private static func parseSearchAliasesComment(_ trimmed: String) -> [String]? {
         guard trimmed.lowercased().hasPrefix(searchAliasesMarker.lowercased()) else { return nil }
@@ -123,6 +135,19 @@ enum SSHConfigParser {
             .split(separator: ",", omittingEmptySubsequences: true)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+    }
+
+    /// Parses one forward marker line (`# sshCM-localforward: <spec> <note>`).
+    /// The spec is always a single whitespace-free token; everything after the
+    /// first whitespace is the free-text note (which may contain spaces/commas).
+    private static func parseForwardComment(_ trimmed: String, marker: String) -> PortForward? {
+        guard trimmed.lowercased().hasPrefix(marker.lowercased()) else { return nil }
+        let payload = trimmed.dropFirst(marker.count).trimmingCharacters(in: .whitespaces)
+        guard !payload.isEmpty else { return nil }
+        let parts = payload.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        let spec = String(parts[0])
+        let note = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : ""
+        return PortForward(spec: spec, note: note)
     }
 
     private static func unquote(_ s: String) -> String {

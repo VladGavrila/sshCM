@@ -15,7 +15,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        true
+        // Clicking the Dock icon (or relaunching) re-surfaces the hidden main window
+        // instead of leaving the user with a running-but-windowless app.
+        MainWindowCloseGuard.surfaceMainWindow()
+        return true
+    }
+}
+
+/// Intercepts the main window's close button (and ⌘W / "Close") so it hides the
+/// window instead of destroying it. Closing previously quit the app, which fought
+/// with the global command palette: the palette must activate the app to receive
+/// keystrokes, and activating raises whatever main window exists. Hiding on close
+/// lets the user tuck the window away so the palette can float alone over other
+/// apps, while keeping a single window alive that the Dock icon, the main-window
+/// hotkey, and the menu-bar item can re-surface. Other `NSWindowDelegate` messages
+/// are forwarded to SwiftUI's own delegate so window behavior is otherwise unchanged.
+final class MainWindowCloseGuard: NSObject, NSWindowDelegate {
+    /// `NSWindow.delegate` is weak, so we must retain the guards ourselves.
+    private static var guards: [MainWindowCloseGuard] = []
+
+    private weak var forwardingDelegate: NSWindowDelegate?
+
+    static func install(on window: NSWindow) {
+        guard !(window.delegate is MainWindowCloseGuard) else { return }
+        let guardDelegate = MainWindowCloseGuard()
+        guardDelegate.forwardingDelegate = window.delegate
+        window.delegate = guardDelegate
+        guards.append(guardDelegate)
+    }
+
+    /// Installs the guard on every eligible main window (skips the command palette).
+    static func installOnMainWindows() {
+        for window in NSApp.windows where window.canBecomeMain && !(window is CommandPalettePanel) {
+            install(on: window)
+        }
+    }
+
+    @MainActor
+    static func surfaceMainWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        let mainWindow = NSApp.windows.first { window in
+            window.canBecomeMain && !(window is CommandPalettePanel)
+        }
+        if let mainWindow {
+            if mainWindow.isMiniaturized { mainWindow.deminiaturize(nil) }
+            mainWindow.makeKeyAndOrderFront(nil)
+        } else {
+            MainWindowOpener.open?()
+        }
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.orderOut(nil)
+        return false
+    }
+
+    // Forward every other delegate message to SwiftUI's original delegate.
+    override func responds(to aSelector: Selector!) -> Bool {
+        super.responds(to: aSelector) || (forwardingDelegate?.responds(to: aSelector) ?? false)
+    }
+
+    override func forwardingTarget(for aSelector: Selector!) -> Any? {
+        if forwardingDelegate?.responds(to: aSelector) == true {
+            return forwardingDelegate
+        }
+        return super.forwardingTarget(for: aSelector)
     }
 }
 
@@ -124,13 +188,41 @@ struct sshCMApp: App {
                 let path = UserDefaults.standard.string(forKey: "defaultTerminalAppPath")
                     ?? TerminalLauncher.defaultTerminalAppPath
                 do {
-                    try HostConnector.connect(
+                    if let warning = try HostConnector.connect(
                         to: host,
                         as: user,
                         reachCache: reachCache,
                         bypassStore: bypassStore,
                         terminalAppPath: path
-                    )
+                    ) {
+                        // The palette lives outside the SwiftUI window; surface the
+                        // main window and let ContentView present the warning sheet.
+                        Self.surfaceMainWindow()
+                        bridge.pendingKeyWarning = warning
+                    }
+                } catch {
+                    let alert = NSAlert()
+                    alert.messageText = "Could not open terminal"
+                    alert.informativeText = error.localizedDescription
+                    alert.runModal()
+                }
+            },
+            onConnectForwarding: { [reachCache, bypassStore] host, user, local, remote in
+                let path = UserDefaults.standard.string(forKey: "defaultTerminalAppPath")
+                    ?? TerminalLauncher.defaultTerminalAppPath
+                do {
+                    if let warning = try HostConnector.connect(
+                        to: host,
+                        as: user,
+                        localForwards: local ? host.localForwards.map(\.spec) : [],
+                        remoteForwards: remote ? host.remoteForwards.map(\.spec) : [],
+                        reachCache: reachCache,
+                        bypassStore: bypassStore,
+                        terminalAppPath: path
+                    ) {
+                        Self.surfaceMainWindow()
+                        bridge.pendingKeyWarning = warning
+                    }
                 } catch {
                     let alert = NSAlert()
                     alert.messageText = "Could not open terminal"
@@ -165,16 +257,7 @@ struct sshCMApp: App {
 
     @MainActor
     private static func surfaceMainWindow() {
-        NSApp.activate(ignoringOtherApps: true)
-        let mainWindow = NSApp.windows.first { window in
-            window.canBecomeMain && !(window is CommandPalettePanel)
-        }
-        if let mainWindow {
-            if mainWindow.isMiniaturized { mainWindow.deminiaturize(nil) }
-            mainWindow.makeKeyAndOrderFront(nil)
-        } else {
-            MainWindowOpener.open?()
-        }
+        MainWindowCloseGuard.surfaceMainWindow()
     }
 
     private func applyHotKey() {

@@ -3,6 +3,8 @@ import SwiftUI
 struct CommandPaletteView: View {
     let hosts: [SSHHost]
     let onConnect: (SSHHost, String?) -> Void
+    /// Connect applying the host's stored forwards: `(host, user, includeLocal, includeRemote)`.
+    let onConnectForwarding: (SSHHost, String?, Bool, Bool) -> Void
     let onEdit: (SSHHost) -> Void
     let onCopy: (SSHHost) -> Void
     let onCopyIP: (SSHHost) -> Void
@@ -85,8 +87,10 @@ struct CommandPaletteView: View {
                     if selectedHostHasAlternateUsers {
                         hint("⌥↵", "Connect as…")
                     }
+                    if selectedHostHasLocalForwards {
+                        hint("⇧↵", "ssh -L")
+                    }
                     hint("⌘E", "Edit")
-                    hint("⌘C", "Copy ssh")
                     hint("⌘I", "Copy IP")
                     hint("⌘R", "Refresh")
                     hint("⌘D", "Delete")
@@ -128,8 +132,21 @@ struct CommandPaletteView: View {
             return .handled
         }
         .onKeyPress(keys: [.return]) { press in
-            if press.modifiers.contains(.option), userPickerHost == nil {
+            guard userPickerHost == nil else {
+                activateSelected()
+                return .handled
+            }
+            let mods = press.modifiers
+            if mods.contains(.option) {
                 openUserPicker()
+                return .handled
+            }
+            if mods.contains(.shift), let host = selectedHost, !host.localForwards.isEmpty {
+                onConnectForwarding(host, nil, true, false)
+                return .handled
+            }
+            if mods.contains(.control), let host = selectedHost, !host.remoteForwards.isEmpty {
+                onConnectForwarding(host, nil, false, true)
                 return .handled
             }
             activateSelected()
@@ -228,6 +245,15 @@ struct CommandPaletteView: View {
                     .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
                     .help("Connects through \(pj)")
             }
+            if host.hasForwards {
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+                    .help("Port forwards — ⇧↵ local (-L), ⌃↵ reverse (-R)")
+            }
             if isJumpHost {
                 Image(systemName: "arrow.triangle.branch")
                     .font(.caption2)
@@ -306,6 +332,10 @@ struct CommandPaletteView: View {
     private var selectedHostHasAlternateUsers: Bool {
         guard let host = selectedHost else { return false }
         return host.alternateUsers.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
+    private var selectedHostHasLocalForwards: Bool {
+        selectedHost.map { !$0.localForwards.isEmpty } ?? false
     }
 
     private func move(by delta: Int) {

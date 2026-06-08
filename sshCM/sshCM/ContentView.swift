@@ -32,6 +32,11 @@ struct ContentView: View {
     @State private var pendingSeedRequests: [SeedRequest] = []
     @State private var searchText: String = ""
     @State private var connectError: String?
+    @State private var hostKeyWarning: HostConnector.KeyWarning?
+    /// Stashed when the user removes a changed key and opts to re-seed; the seed
+    /// sheet is presented from the warning sheet's `onDismiss` so the two sheets
+    /// don't fight over presentation.
+    @State private var seedAfterWarningDismiss: SeedRequest?
     @State private var presentedRelease: UpdateChecker.Release?
     @State private var typeAheadMonitor: Any?
     @AppStorage("hostsViewMode") private var viewModeRaw: String = HostsViewMode.card.rawValue
@@ -96,6 +101,23 @@ struct ContentView: View {
             } message: { msg in
                 Text(msg)
             }
+            .sheet(item: $hostKeyWarning, onDismiss: {
+                if let req = seedAfterWarningDismiss {
+                    seedAfterWarningDismiss = nil
+                    enqueueSeed(host: req.host, userOverride: req.userOverride)
+                }
+            }) { warning in
+                HostKeyWarningSheet(
+                    warning: warning,
+                    onRemoveKey: { HostConnector.removeOldKey(for: warning, reachCache: reachCache) },
+                    onReseed: {
+                        seedAfterWarningDismiss = SeedRequest(host: warning.host, userOverride: warning.user)
+                    },
+                    onConnect: { connectAfterRemoval(warning) },
+                    onBypassOnce: { bypass(warning, persist: false) },
+                    onBypassPersist: { bypass(warning, persist: true) }
+                )
+            }
             .sheet(item: $presentedRelease, onDismiss: {
                 if case .downloading = updater.state {
                     updater.cancelDownload()
@@ -132,6 +154,7 @@ struct ContentView: View {
                     Task { await checker.check(userInitiated: true) }
                 }
                 installTypeAheadMonitor()
+                DispatchQueue.main.async { MainWindowCloseGuard.installOnMainWindows() }
             }
             .onDisappear { removeTypeAheadMonitor() }
             .task(id: probeFleetKey) {
@@ -154,6 +177,11 @@ struct ContentView: View {
                 guard newValue else { return }
                 showingAdd = true
                 paletteBridge.pendingAdd = false
+            }
+            .onChange(of: paletteBridge.pendingKeyWarning) { _, newValue in
+                guard let warning = newValue else { return }
+                hostKeyWarning = warning
+                paletteBridge.pendingKeyWarning = nil
             }
     }
 
@@ -247,6 +275,10 @@ struct ContentView: View {
         if paletteBridge.pendingAdd {
             showingAdd = true
             paletteBridge.pendingAdd = false
+        }
+        if let warning = paletteBridge.pendingKeyWarning {
+            hostKeyWarning = warning
+            paletteBridge.pendingKeyWarning = nil
         }
     }
 
@@ -357,21 +389,71 @@ struct ContentView: View {
         currentSeedRequest = pendingSeedRequests.removeFirst()
     }
 
-    private func connect(to host: SSHHost, as user: String? = nil) {
+    private func connect(
+        to host: SSHHost,
+        as user: String? = nil,
+        localForwards: [String] = [],
+        remoteForwards: [String] = []
+    ) {
         guard let alias = host.aliases.first, !alias.isEmpty else {
             connectError = "Host has no alias to connect to."
             return
         }
         do {
-            try HostConnector.connect(
+            if let warning = try HostConnector.connect(
                 to: host,
                 as: user,
+                localForwards: localForwards,
+                remoteForwards: remoteForwards,
                 reachCache: reachCache,
+                bypassStore: bypassStore,
+                terminalAppPath: terminalAppPath
+            ) {
+                hostKeyWarning = warning
+            }
+        } catch {
+            connectError = error.localizedDescription
+        }
+    }
+
+    /// Connects applying the host's stored forwards for the requested directions.
+    private func connectForwarding(to host: SSHHost, includeLocal: Bool, includeRemote: Bool) {
+        connect(
+            to: host,
+            localForwards: includeLocal ? host.localForwards.map(\.spec) : [],
+            remoteForwards: includeRemote ? host.remoteForwards.map(\.spec) : []
+        )
+    }
+
+    /// Connects normally after the user removed a changed host key.
+    private func connectAfterRemoval(_ warning: HostConnector.KeyWarning) {
+        do {
+            try HostConnector.connectNormally(warning, terminalAppPath: terminalAppPath)
+        } catch {
+            connectError = error.localizedDescription
+        }
+    }
+
+    /// Connects with host-key checking disabled, optionally persisting the bypass.
+    private func bypass(_ warning: HostConnector.KeyWarning, persist: Bool) {
+        do {
+            try HostConnector.connectBypassing(
+                warning,
+                persist: persist,
                 bypassStore: bypassStore,
                 terminalAppPath: terminalAppPath
             )
         } catch {
             connectError = error.localizedDescription
+        }
+    }
+
+    /// Queues a key-seeding sheet for `host`. Used after a re-imaged host's
+    /// changed key is removed, to offer re-copying the public key.
+    private func enqueueSeed(host: SSHHost, userOverride: String?) {
+        pendingSeedRequests.append(SeedRequest(host: host, userOverride: userOverride))
+        if currentSeedRequest == nil {
+            dequeueNextSeed()
         }
     }
 
@@ -473,7 +555,10 @@ struct ContentView: View {
                             onEdit: { hostBeingEdited = host },
                             onDelete: { hostPendingDeletion = host },
                             onConnect: { connect(to: host) },
-                            onConnectAs: { user in connect(to: host, as: user) }
+                            onConnectAs: { user in connect(to: host, as: user) },
+                            onConnectForwarding: { local, remote in
+                                connectForwarding(to: host, includeLocal: local, includeRemote: remote)
+                            }
                         )
                     }
                 }
@@ -491,7 +576,10 @@ struct ContentView: View {
                     onEdit: { hostBeingEdited = host },
                     onDelete: { hostPendingDeletion = host },
                     onConnect: { connect(to: host) },
-                    onConnectAs: { user in connect(to: host, as: user) }
+                    onConnectAs: { user in connect(to: host, as: user) },
+                    onConnectForwarding: { local, remote in
+                        connectForwarding(to: host, includeLocal: local, includeRemote: remote)
+                    }
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.visible)

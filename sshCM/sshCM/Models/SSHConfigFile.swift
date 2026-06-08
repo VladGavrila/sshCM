@@ -91,6 +91,14 @@ struct SSHConfigFile {
         if !h.alternateUsers.isEmpty {
             lines.append("    \(SSHConfigParser.alternateUsersMarker) \(h.alternateUsers.joined(separator: ", "))")
         }
+        for f in h.localForwards {
+            let suffix = f.note.isEmpty ? "" : " \(f.note)"
+            lines.append("    \(SSHConfigParser.localForwardMarker) \(f.spec)\(suffix)")
+        }
+        for f in h.remoteForwards {
+            let suffix = f.note.isEmpty ? "" : " \(f.note)"
+            lines.append("    \(SSHConfigParser.remoteForwardMarker) \(f.spec)\(suffix)")
+        }
         if let v = h.hostName, !v.isEmpty { lines.append(indented("HostName", v)) }
         if let v = h.user, !v.isEmpty { lines.append(indented("User", v)) }
         if let p = h.port { lines.append(indented("Port", String(p))) }
