@@ -9,7 +9,7 @@ import Foundation
 /// native `LocalForward`/`RemoteForward` directives, so a plain `ssh host`
 /// connection does not forward — the flags are injected only when the user
 /// explicitly picks a tunnel action.
-struct PortForward: Hashable {
+struct PortForward: Hashable, Codable {
     var spec: String
     var note: String
 

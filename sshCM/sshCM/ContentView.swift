@@ -11,6 +11,12 @@ struct SeedRequest: Identifiable {
     let userOverride: String?
 }
 
+/// Wraps a decoded import document so it can drive a `.sheet(item:)`.
+struct ImportSession: Identifiable {
+    let id = UUID()
+    let document: HostExportDocument
+}
+
 struct ContentView: View {
     @Environment(ConfigStore.self) private var store
     @Environment(FavoritesStore.self) private var favorites
@@ -41,6 +47,9 @@ struct ContentView: View {
     @State private var typeAheadMonitor: Any?
     @AppStorage("hostsViewMode") private var viewModeRaw: String = HostsViewMode.card.rawValue
     @AppStorage("showOnlyReachable") private var showOnlyReachable: Bool = false
+    @State private var showingExport = false
+    @State private var importSession: ImportSession?
+    @State private var importError: String?
 
     private var viewMode: HostsViewMode {
         HostsViewMode(rawValue: viewModeRaw) ?? .card
@@ -57,6 +66,28 @@ struct ContentView: View {
             }
             .sheet(item: $currentSeedRequest, onDismiss: dequeueNextSeed) { request in
                 SeedKeySheet(host: request.host, userOverride: request.userOverride)
+            }
+            .sheet(isPresented: $showingExport) {
+                ExportHostsSheet(hosts: store.file.hosts)
+                    .environment(tagsStore)
+                    .environment(favorites)
+                    .environment(reachCache)
+            }
+            .sheet(item: $importSession) { session in
+                ImportHostsSheet(document: session.document)
+                    .environment(store)
+                    .environment(tagsStore)
+                    .environment(favorites)
+                    .environment(reachCache)
+            }
+            .alert(
+                "Import Failed",
+                isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } }),
+                presenting: importError
+            ) { _ in
+                Button("OK") { importError = nil }
+            } message: { msg in
+                Text(msg)
             }
             .sheet(item: $hostBeingEdited) { (host: SSHHost) in
                 AddHostSheet(editing: host, onSaved: { saved, isNew, added in
@@ -214,10 +245,29 @@ struct ContentView: View {
     private func handleTypeAhead(_ event: NSEvent) -> NSEvent? {
         guard let win = event.window, win === NSApp.mainWindow else { return event }
         guard win.attachedSheet == nil else { return event }
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        // In menu-bar (accessory) mode there is no app menu to process SwiftUI
+        // `.keyboardShortcut`, so handle ⌘E / ⌘I here (works while the main
+        // window is key). In Dock (.regular) mode the SwiftUI shortcuts handle
+        // them and show the hint in the toolbar menu, so we defer to those.
+        if NSApp.activationPolicy() == .accessory, mods == .command,
+           let key = event.charactersIgnoringModifiers?.lowercased() {
+            switch key {
+            case "e":
+                if !store.file.hosts.isEmpty { showingExport = true }
+                return nil
+            case "i":
+                beginImport()
+                return nil
+            default:
+                break
+            }
+        }
+
         if let responder = win.firstResponder, responder.isKind(of: NSText.self) {
             return event
         }
-        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if mods.contains(.command) || mods.contains(.control) || mods.contains(.option) {
             return event
         }
@@ -311,6 +361,10 @@ struct ContentView: View {
 
     private var baseView: some View {
         hostsContent
+            // Rebuild the grid/list when the active filters change so it
+            // re-lays-out from the top — otherwise a stale scroll offset can clip
+            // the first item after a filter is removed.
+            .id(listIdentity)
             .frame(minWidth: 990, maxWidth: 1320, minHeight: 320)
             .navigationTitle("SSH Config Manager")
             .toolbar {
@@ -344,6 +398,25 @@ struct ContentView: View {
                     }
                     .help("Reload ~/.ssh/config and re-check reachability")
 
+                    Menu {
+                        Button {
+                            showingExport = true
+                        } label: {
+                            Label("Export Hosts…", systemImage: "arrowshape.up.circle")
+                        }
+                        .keyboardShortcut("e", modifiers: .command)
+                        .disabled(store.file.hosts.isEmpty)
+                        Button {
+                            beginImport()
+                        } label: {
+                            Label("Import Hosts…", systemImage: "arrowshape.down.circle")
+                        }
+                        .keyboardShortcut("i", modifiers: .command)
+                    } label: {
+                        Label("Import or Export", systemImage: "square.and.arrow.up.on.square")
+                    }
+                    .help("Export or import hosts as a portable JSON file")
+
                     Button {
                         showingAdd = true
                     } label: {
@@ -360,6 +433,19 @@ struct ContentView: View {
                     noMatchesState
                 }
             }
+    }
+
+    /// Picks a JSON file, decodes it, and opens the import selection sheet. The
+    /// open panel is modal and returns synchronously, so this stays sequential.
+    private func beginImport() {
+        guard let url = FilePicker.pickImportFile() else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            let document = try HostPortability.decode(data)
+            importSession = ImportSession(document: document)
+        } catch {
+            importError = "Could not read hosts file: \(error.localizedDescription)"
+        }
     }
 
     private func considerKeySeeds(host: SSHHost, isNew: Bool, addedAlternateUsers: [String]) async {
@@ -540,6 +626,12 @@ struct ContentView: View {
         case .card: hostGrid
         case .list: hostList
         }
+    }
+
+    /// Identity for the grid/list, so it rebuilds (and scrolls to top) whenever
+    /// the view mode or active filters change.
+    private var listIdentity: String {
+        "\(viewModeRaw)|\(showOnlyReachable)|\(searchText)"
     }
 
     private var hostGrid: some View {

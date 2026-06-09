@@ -28,22 +28,26 @@ final class ConfigStore {
         }
     }
 
-    func add(_ host: SSHHost) {
+    /// - Parameter publish: when `false`, the `/etc/hosts` sync is skipped so a
+    ///   caller applying several changes in a row (e.g. import) can batch them
+    ///   into a single admin prompt by calling `publishHostsIfEnabled()` once at
+    ///   the end. The config file itself is still persisted on every call.
+    func add(_ host: SSHHost, publish: Bool = true) {
         file.append(host: host)
         persist()
-        publishHostsIfEnabled()
+        if publish { publishHostsIfEnabled() }
     }
 
-    func remove(id: UUID) {
+    func remove(id: UUID, publish: Bool = true) {
         file.remove(id: id)
         persist()
-        publishHostsIfEnabled()
+        if publish { publishHostsIfEnabled() }
     }
 
-    func update(_ host: SSHHost) {
+    func update(_ host: SSHHost, publish: Bool = true) {
         file.update(host)
         persist()
-        publishHostsIfEnabled()
+        if publish { publishHostsIfEnabled() }
     }
 
     /// Re-syncs the `/etc/hosts` managed block after a host change, when the
