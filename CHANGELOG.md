@@ -1,0 +1,188 @@
+# Changelog
+
+All notable changes to **sshCM** ("SSH Config Manager") are documented here, newest first. Each entry corresponds to a [GitHub release](https://github.com/VladGavrila/sshCM/releases).
+
+## [1.12.0] — 2026-06-18
+
+### Improved
+- Updated app icon
+- added `CHANGELOG.md` file for better release review
+
+## [1.11.0] — 2026-06-09
+
+### Added
+- **Export & import hosts as a portable JSON file** (toolbar menu, **⌘E** / **⌘I**) for backups or setting up a new Mac. Captures everything sshCM knows about a host — hostname, user, port, identity file, proxy jump, alternate users, search aliases, on-demand port forwards — plus its color tag and favorite state. Only selected hosts are written; global directives and `Match` blocks are left out.
+- **Shared picker on both sides**, matching the main window: color-tag stripe, live reachability dot, favorite star, per-row checkbox, instant search filter, **Reachable only** narrowing (imports are probed too), and a **New only** toggle on import to hide already-existing aliases. `Select`/`Deselect All` and export/import act only on currently-visible, checked rows.
+- **Host-by-host conflict resolution on import.** For each alias collision: **Use Imported** (replace in place), **Keep Current** (skip), or **Cancel**, with a "1 of 3" progress counter. Brand-new hosts are added without interruption.
+
+### Improved
+- **Touch ID for `/etc/hosts` updates** when `pam_tid.so` is configured for `sudo` — authenticate with a fingerprint instead of typing your password; falls back to the usual admin prompt otherwise.
+
+## [1.10.0] — 2026-06-08
+
+### Added
+- **On-demand SSH port forwarding.** Attach `-L` (local) and `-R` (reverse) forwards to any host via **Edit → Port Forwarding**, each with a plain-language description. Forwards are saved but stay dormant — a normal connect never opens a tunnel.
+- **Pick a tunnel only when you want one.** Hosts with forwards gain a badge (cards, list, palette) and a connect menu offering **local (-L)**, **reverse (-R)**, or **both**. From the palette, **⇧↵** applies local forwards and **⌃↵** reverse ones. Only the forward spec reaches the `ssh` command line.
+- Forwards are stored as `# sshCM-localforward:` / `# sshCM-remoteforward:` comments inside the host block (not native `LocalForward`/`RemoteForward`), so `ssh host` from a terminal behaves exactly as before and the metadata round-trips untouched.
+
+### Improved
+- **Redesigned "host key has changed" warning** as a native sheet matching the app, replacing the old system alert. Shows the entry and the new key's SHA256 fingerprint, with the same four choices (remove old key, connect once without checking, always bypass, cancel).
+- **Offer to re-copy your key after a rebuild.** After removing a stale host key, sshCM offers to re-copy your public key to the host so you aren't locked out on the next connection.
+
+## [1.9.1] — 2026-06-03
+
+### Fixed
+- **Hosts that share a name no longer connect to the wrong machine.** Multi-word names (e.g. `test another host`) were split on spaces into separate SSH aliases, causing collisions that crossed up connections, tags, and host-key bypasses. Aliases are now a single, unique token.
+- **The Alias field rejects invalid characters as you type** — only letters, digits, and `- . _` are kept; a note explains what was dropped. Saving is blocked (with an inline message) if an alias is already in use. Editing an older multi-word host collapses it to a clean alias on save.
+- **The Search aliases field follows the same validation rules** (commas still separate individual aliases).
+
+## [1.9.0] — 2026-05-30
+
+### Added
+- **Host key change detection.** After a reachability check, a lightweight `ssh-keyscan` pass (no login, no prompts) compares the server key against `~/.ssh/known_hosts`. Genuinely *changed* keys raise a yellow warning in cards, list, and palette; brand-new hosts stay quiet (trust-on-first-use).
+- **Decide what to do at connect time.** Connecting to a flagged host shows the entry and new key's SHA256 fingerprint, with three choices: **Remove the old key** (`ssh-keygen -R`, with a `.old` backup), **Connect once without checking**, or **Always bypass for this host**. Persisted bypasses show an orange unlocked-padlock badge and can be revoked from the host's **Edit** sheet (the bypass follows alias renames).
+- **Make aliases resolvable system-wide.** Opt-in **Settings → System-Wide Name Resolution** publishes aliases into a clearly-marked, app-owned `/etc/hosts` block so they resolve everywhere (Screen Sharing, VNC, browsers). Only hosts whose `HostName` is a literal IP are published; macOS prompts for admin only when the published list actually changes.
+
+## [1.8.1] — 2026-05-27
+
+### Fixed
+- **Edits from the Command Palette are now saved.** Editing a host from the palette with the main window closed silently discarded the change. Host identity is now preserved across reloads (matched by alias).
+- **Keep the terminal open after a session ends.** When `ssh` exits, the tab drops into an interactive login shell (`[sshCM] Session ended — returning to shell.`) so scrollback stays available. Controlled by **Settings → Default Terminal Application → "Keep terminal open after session ends"** (on by default).
+
+## [1.8.0] — 2026-05-23
+
+### Added
+- **Alternate users per host.** New *Alternate users* field stored as a `# sshCM-users:` comment. The terminal button becomes a split-button (click = default user, dropdown = alternates). In the palette, **⌥↵** opens a keyboard-driven *Connect as…* picker (↑↓ + ↩, ⌘1–9 direct, Esc to back out); right-click is the mouse equivalent. Key-seeding runs once per newly added alternate user.
+- **Card / List view toggle** in the toolbar. The compact list keeps every glyph and control, supports swipe-to-delete, and persists across launches.
+- **Show only reachable hosts** toolbar filter, persisted across launches and combinable with search.
+- **Type-ahead filter in the main window** — typing anywhere captures into the search field (**Backspace** trims, **Esc** clears); skips when a sheet or text field has focus.
+- **Configurable "Show Main Window" hotkey** (Settings → Global Hotkeys), disabled by default. Both hotkeys appear in the menu-bar status menu.
+- **Jump-host indicators** — a glyph on hosts used as a `ProxyJump` (card footer, list, palette) and on hosts that go *through* a jump host (palette).
+- **Alt-users badge in the palette** (`person.2` pill with count and tooltip); the *⌥↵ Connect as…* hint shows only when the highlighted host has alternates.
+- **Default public key for setup** (Settings → *Public Key for Setup*), pre-selected in the *Set Up Key Authentication* sheet.
+
+### Fixed
+- Editing/deleting/adding a host from the palette now opens the main window if it was closed (common in menu-bar mode).
+- Removed a hard-coded ⌘K palette binding that fired regardless of the configured global hotkey.
+- Reachability indicator no longer flickers when filtering — status is read directly from the shared cache.
+
+## [1.7.0] — 2026-05-19
+
+### Added
+- **Search aliases.** New comma-separated *Search aliases* field (stored as `# sshCM-aliases:`) makes a host discoverable in the grid and palette under other names without affecting what `ssh <alias>` connects to.
+
+### Fixed
+- The Command Palette reserves a stable height (four rows) so it no longer jumps in size as you type.
+
+## [1.6.0] — 2026-05-16
+
+### Added
+- **Reachability in the Command Palette** — each result row shows the same colored dot as the main grid.
+- **⌘1 – ⌘9 to jump** to a visible result and connect immediately.
+- **⌘I to copy IP** (the host's `HostName`, or alias if none); ⌘C still copies the full SSH command.
+- **⌘R to refresh the highlighted host** in the palette (pulses orange while probing, updates the shared cache); ⌘R still does a full Reload Config when the palette is closed.
+- **⌘N opens the Add Host form**, replacing the default macOS *New Window* binding.
+
+### Fixed
+- The Command Palette is rebuilt from scratch on each open, fixing broken arrow keys / shortcuts after dismissing with Esc.
+
+## [1.5.2] — 2026-05-14
+
+### Improved
+- **Check for Updates…** added to the menu-bar status dropdown, surfacing the main window so results appear where expected.
+
+## [1.5.1] — 2026-05-14
+
+### Fixed
+- Menu bar rebuilds immediately after switching from menu-bar mode back to Dock mode.
+- Settings opens reliably from the menu-bar icon (now uses SwiftUI's `openSettings`).
+
+### Improved
+- Settings responds to Esc as Cancel.
+
+## [1.5.0] — 2026-05-14
+
+### Added
+- **Global hotkey for the Command Palette** (default **⌥K**), rebindable in Settings and toggleable off.
+- **Spotlight-style floating palette** — a borderless panel anchored near the top-third of the active screen, dismissing on Esc or focus loss.
+- **App keeps running with the main window closed** — the hotkey, menu-bar item, and Dock activation bring it back; ⌘Q fully exits.
+- **Dock icon or menu bar icon** — new *App Presentation* section in Settings, switchable live without relaunch. Menu-bar mode adds a dropdown for palette, main window, settings, and quit.
+
+## [1.4.0] — 2026-05-12
+
+### Added
+- **Color tags for hosts** — one of seven fixed colors per host, drawn as a 5pt inset border on the card.
+- **Assign tags from Add / Edit Host** via a swatch popover; tags are stored per primary alias, migrate on rename, and clear on delete.
+- **Tag-aware sorting** — favorites first, then tagged hosts grouped by color, then untagged, alphabetical within each group.
+- **Drag-and-drop tag-order in Settings** (*Host Tag Sort Order*) with live re-grouping and *Reset to Default*.
+- **Renameable tags** — custom display names (e.g. "Production") used in tooltips, search, and palette matching.
+- **Reachability cache** per `host:port` for the session, so filtering no longer re-probes hosts.
+
+### Fixed
+- The toolbar *Refresh* button (and ⌘R *Reload Config*) now clears the cache and forces a re-probe.
+
+## [1.3.2] — 2026-05-12
+
+### Added
+- **Runs on macOS Sequoia** — deployment target lowered from macOS 26 (Tahoe) to macOS 15 (Sequoia).
+
+### Fixed
+- Reachability dots no longer flash straight to red on first launch — the TCP probe now ignores the transient `.waiting` state and resolves on `.ready`, `.failed`, `.cancelled`, or timeout.
+
+## [1.3.1] — 2026-05-11
+
+### Added
+- The *Update Available* sheet renders GitHub release notes as proper Markdown.
+
+### Fixed
+- `scripts/build-release.sh` no longer hardcodes `BUNDLE_SHORT_VERSION=1.0.0` and override the project's `MARKETING_VERSION`.
+
+## [1.3.0] — 2026-05-11
+
+### Added
+- **Key-based authentication setup.** After adding a reachable new host, a *Set Up Key Authentication* sheet offers to seed your public key into the remote's `authorized_keys`. Scans `~/.ssh` for keys (one / multiple / none — with **Generate Key** running `ssh-keygen -t ed25519`), runs `ssh-copy-id`, and reports success, failure (last line of output), or a 30s timeout. **Hide** dismisses without stopping the Terminal command.
+
+## [1.2.0] — 2026-05-10
+
+### Added
+- **In-app updates.** New **Check for Updates…** menu item and Settings *Updates* section (auto-check toggle, current version, last-checked time, manual check). The update sheet shows the new version with release notes and offers **Install Update**, **Skip This Version**, or **Remind Me Later**. Auto-checks are throttled to once every 24 hours; skipped versions are remembered until the next user-initiated check.
+- Installs verify the downloaded bundle (`ditto` extract, quarantine strip, codesign check), then a helper script swaps the running app and relaunches. Failures keep the sheet open with the error.
+
+## [1.1.0] — 2026-05-10
+
+### Added
+- **Host reachability indicator** — a colored status dot per card (orange checking / green reachable / red not), driven by a 5-second TCP probe.
+- **Favorites + favorites-first sort** — a star pins hosts to the top, persisted in `UserDefaults` (config untouched).
+- **Command palette (⌘K)** — Spotlight-style overlay for keyboard-first connect/edit/copy/delete (`↑/↓` navigate, `↵` connect, `⌘E` edit, `⌘C` copy `ssh <alias>`, `⌘D` delete, `Esc` close) with fuzzy ranking (exact alias > prefix > substring > other field, favorites tie-breaking up).
+
+## [1.0.0] — 2026-05-10
+
+### Added
+- Initial release. Reads, edits, and writes `~/.ssh/config`, presenting each `Host` block as a card in a searchable grid:
+  - **Browse** every host with alias, hostname, user, port, identity file, and `ProxyJump`.
+  - **Filter** across alias, hostname, user, identity file, proxy jump, and port.
+  - **Add / edit hosts** (alias, `HostName`, `User`, `Port`, and Advanced `IdentityFile` / `ProxyJump`, with file picking).
+  - **Remove hosts** with a confirmation dialog.
+  - **Connect** by launching `ssh <alias>` in the configured terminal via a one-shot `.command` script.
+  - **Configure terminal** in Settings (defaults to Terminal.app).
+- Config handling preserves structure: atomic `0600` writes, `~/.ssh` created `0700` if missing, and comments, blank lines, global directives, `Include`/`Match` blocks, and unknown keys round-trip verbatim.
+
+[1.12.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.12.0
+[1.11.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.11.0
+[1.10.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.10.0
+[1.9.1]: https://github.com/VladGavrila/sshCM/releases/tag/v1.9.1
+[1.9.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.9.0
+[1.8.1]: https://github.com/VladGavrila/sshCM/releases/tag/v1.8.1
+[1.8.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.8.0
+[1.7.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.7.0
+[1.6.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.6.0
+[1.5.2]: https://github.com/VladGavrila/sshCM/releases/tag/v1.5.2
+[1.5.1]: https://github.com/VladGavrila/sshCM/releases/tag/v1.5.1
+[1.5.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.5.0
+[1.4.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.4.0
+[1.3.2]: https://github.com/VladGavrila/sshCM/releases/tag/v1.3.2
+[1.3.1]: https://github.com/VladGavrila/sshCM/releases/tag/v1.3.1
+[1.3.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.3.0
+[1.2.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.2.0
+[1.1.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.1.0
+[1.0.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.0.0
