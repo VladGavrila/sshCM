@@ -2,6 +2,11 @@
 
 All notable changes to **sshCM** ("SSH Config Manager") are documented here, newest first. Each entry corresponds to a [GitHub release](https://github.com/VladGavrila/sshCM/releases).
 
+## [1.13.0] — 2026-06-19
+
+### Improved
+- **Update sheet now shows every version you missed, not just the latest.** When an update is found, the *Update Available* sheet accumulates the release notes for every version between the one you're running and the newest — each under its own heading, newest first — so a user several releases behind sees the full changelog in one place. Single-step updates look exactly as before. Draft and prerelease tags are ignored, and the newest release that ships an installable `sshCM.zip` is still the one installed.
+
 ## [1.12.0] — 2026-06-18
 
 ### Improved
@@ -167,6 +172,7 @@ All notable changes to **sshCM** ("SSH Config Manager") are documented here, new
   - **Configure terminal** in Settings (defaults to Terminal.app).
 - Config handling preserves structure: atomic `0600` writes, `~/.ssh` created `0700` if missing, and comments, blank lines, global directives, `Include`/`Match` blocks, and unknown keys round-trip verbatim.
 
+[1.13.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.13.0
 [1.12.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.12.0
 [1.11.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.11.0
 [1.10.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.10.0

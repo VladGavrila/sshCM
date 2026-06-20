@@ -24,7 +24,10 @@ final class UpdateChecker {
         case error(String)
     }
 
-    static let releasesAPI = URL(string: "https://api.github.com/repos/VladGavrila/sshCM/releases/latest")!
+    // The full releases list (newest first), not /releases/latest: we want every release
+    // between the user's current version and the newest so the update sheet can show the
+    // accumulated changelog, not just the last bump.
+    static let releasesAPI = URL(string: "https://api.github.com/repos/VladGavrila/sshCM/releases?per_page=30")!
     static let assetName = "sshCM.zip"
 
     private let autoCheckKey = "autoCheckForUpdates"
@@ -85,21 +88,21 @@ final class UpdateChecker {
         if case .installing = state { return }
         state = .checking
         do {
-            let release = try await fetchLatestRelease()
+            let (latest, all) = try await fetchReleases()
             lastCheck = Date()
             guard let current = currentVersion else {
                 state = .error("Could not determine current app version.")
                 return
             }
-            if release.version <= current {
+            if latest.version <= current {
                 state = userInitiated ? .upToDate : .idle
                 return
             }
-            if !userInitiated, let skipped = skippedVersion, skipped == release.tag {
+            if !userInitiated, let skipped = skippedVersion, skipped == latest.tag {
                 state = .idle
                 return
             }
-            state = .available(release)
+            state = .available(makeCombinedRelease(latest: latest, all: all, current: current))
         } catch {
             if userInitiated {
                 state = .error("Could not check for updates: \(error.localizedDescription)")
@@ -153,7 +156,16 @@ final class UpdateChecker {
         }
     }
 
-    private func fetchLatestRelease() async throws -> Release {
+    /// A parsed published release, used to accumulate the changelog across versions.
+    private struct ReleaseInfo {
+        let version: SemanticVersion
+        let tag: String
+        let notes: String
+    }
+
+    /// Fetches the full releases list and returns the newest installable release plus every
+    /// parsed published release (newest first), so the caller can build a multi-version changelog.
+    private func fetchReleases() async throws -> (latest: Release, all: [ReleaseInfo]) {
         var request = URLRequest(url: Self.releasesAPI)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("sshCM/\(currentVersionString)", forHTTPHeaderField: "User-Agent")
@@ -163,22 +175,61 @@ final class UpdateChecker {
             let msg = (try? JSONDecoder().decode(GHError.self, from: data).message) ?? "HTTP \(http.statusCode)"
             throw NSError(domain: "UpdateChecker", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: msg])
         }
-        let payload = try JSONDecoder().decode(GHRelease.self, from: data)
-        guard let asset = payload.assets.first(where: { $0.name == Self.assetName }),
+        let payload = try JSONDecoder().decode([GHRelease].self, from: data)
+
+        // Keep only published (non-draft, non-prerelease) releases whose tag is a valid semver,
+        // newest first.
+        let published = payload
+            .filter { !($0.draft ?? false) && !($0.prerelease ?? false) }
+            .compactMap { gh -> (gh: GHRelease, version: SemanticVersion)? in
+                guard let v = SemanticVersion(gh.tag_name) else { return nil }
+                return (gh, v)
+            }
+            .sorted { $0.version > $1.version }
+
+        // The newest release that actually ships an installable asset becomes the install target.
+        guard let newest = published.first(where: { entry in
+                  entry.gh.assets.contains { $0.name == Self.assetName }
+              }),
+              let asset = newest.gh.assets.first(where: { $0.name == Self.assetName }),
               let url = URL(string: asset.browser_download_url) else {
             throw NSError(domain: "UpdateChecker", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Latest release has no \(Self.assetName) asset."])
+                          userInfo: [NSLocalizedDescriptionKey: "No release with a \(Self.assetName) asset was found."])
         }
-        guard let version = SemanticVersion(payload.tag_name) else {
-            throw NSError(domain: "UpdateChecker", code: -2,
-                          userInfo: [NSLocalizedDescriptionKey: "Could not parse release tag '\(payload.tag_name)'."])
-        }
-        return Release(
-            version: version,
-            tag: payload.tag_name,
-            notes: payload.body ?? "",
+
+        let latest = Release(
+            version: newest.version,
+            tag: newest.gh.tag_name,
+            notes: newest.gh.body ?? "",
             downloadURL: url,
             assetSize: asset.size
+        )
+        let all = published.map { ReleaseInfo(version: $0.version, tag: $0.gh.tag_name, notes: $0.gh.body ?? "") }
+        return (latest, all)
+    }
+
+    /// Builds the release shown in the update sheet: the newest installable release, but with the
+    /// notes of every version the user is missing (current+1 … latest) concatenated newest-first,
+    /// each under its own heading. A user several versions behind sees the full changelog, not just
+    /// the last bump. With only a single missing version, the latest release's own notes are used as-is.
+    private func makeCombinedRelease(latest: Release, all: [ReleaseInfo], current: SemanticVersion) -> Release {
+        let missing = all
+            .filter { $0.version > current && $0.version <= latest.version }
+            .sorted { $0.version > $1.version }
+        guard missing.count > 1 else { return latest }
+        let combined = missing
+            .map { entry -> String in
+                let body = entry.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+                let heading = "# sshCM \(entry.version.description)"
+                return body.isEmpty ? heading : "\(heading)\n\n\(body)"
+            }
+            .joined(separator: "\n\n")
+        return Release(
+            version: latest.version,
+            tag: latest.tag,
+            notes: combined,
+            downloadURL: latest.downloadURL,
+            assetSize: latest.assetSize
         )
     }
 
@@ -240,6 +291,8 @@ final class UpdateChecker {
         let tag_name: String
         let body: String?
         let assets: [GHAsset]
+        let draft: Bool?
+        let prerelease: Bool?
     }
 
     private struct GHAsset: Decodable {
