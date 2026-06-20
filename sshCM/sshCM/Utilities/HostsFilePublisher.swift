@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import AppKit
 
 /// Keeps an app-owned block in `/etc/hosts` in sync with the user's SSH hosts so
 /// that aliases resolve system-wide (Screen Sharing, VNC, browsers, …), not just
@@ -146,6 +147,13 @@ enum HostsFilePublisher {
         }
         defer { try? FileManager.default.removeItem(at: tmp) }
 
+        // The admin-authentication prompt (Touch ID's SecurityAgent or the
+        // osascript dialog) is presented by another process and steals focus.
+        // When it's dismissed, macOS may leave that process frontmost instead of
+        // returning to us, pushing our window behind. Note whether we were the
+        // active app before the prompt so we can reclaim focus afterward.
+        let wasActive = await MainActor.run { NSApp.isActive }
+
         // Install atomically, restore canonical ownership/permissions, then nudge
         // the resolver caches. The cache flush is best-effort (`; … || true`).
         let shell = "/bin/cp '\(tmp.path)' /etc/hosts"
@@ -160,16 +168,24 @@ enum HostsFilePublisher {
         // biometric auth is unavailable, which a GUI process can't satisfy — so
         // on any sudo failure we fall back to the classic AppleScript admin
         // dialog, which everyone (Touch ID or not) can complete.
+        let result: SyncResult
         if touchIDSudoConfigured() {
-            let result = await runViaSudo(shell: shell)
-            switch result {
+            let sudoResult = await runViaSudo(shell: shell)
+            switch sudoResult {
             case .updated, .cancelled:
-                return result
+                result = sudoResult
             case .unchanged, .failed:
-                return await runViaOSAScript(shell: shell)
+                result = await runViaOSAScript(shell: shell)
             }
+        } else {
+            result = await runViaOSAScript(shell: shell)
         }
-        return await runViaOSAScript(shell: shell)
+
+        // Reclaim focus if the prompt left another app frontmost.
+        if wasActive {
+            await MainActor.run { NSApp.activate(ignoringOtherApps: true) }
+        }
+        return result
     }
 
     /// Runs the privileged shell via `sudo`. With `pam_tid.so` configured this

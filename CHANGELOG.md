@@ -2,6 +2,12 @@
 
 All notable changes to **sshCM** ("SSH Config Manager") are documented here, newest first. Each entry corresponds to a [GitHub release](https://github.com/VladGavrila/sshCM/releases).
 
+## [1.13.1] — 2026-06-19
+
+### Fixed
+- **The main window no longer drops behind after an `/etc/hosts` admin prompt.** When adding or removing a host triggered the elevation dialog (Touch ID or the password prompt), dismissing it could leave another app frontmost and push sshCM into the background. sshCM now reclaims focus after the prompt if it was the active app beforehand.
+- **sshCM returns to the foreground after key-authentication setup.** When the *Set Up Key Authentication* flow finishes its `ssh-copy-id` / `ssh-keygen` command in Terminal, sshCM now comes back to the front so you see the result (and, after generating a key, the key-selection step) instead of being left on the Terminal window. Focus is only reclaimed once the command actually finishes — not while you may still be entering a password.
+
 ## [1.13.0] — 2026-06-19
 
 ### Improved
@@ -172,6 +178,7 @@ All notable changes to **sshCM** ("SSH Config Manager") are documented here, new
   - **Configure terminal** in Settings (defaults to Terminal.app).
 - Config handling preserves structure: atomic `0600` writes, `~/.ssh` created `0700` if missing, and comments, blank lines, global directives, `Include`/`Match` blocks, and unknown keys round-trip verbatim.
 
+[1.13.1]: https://github.com/VladGavrila/sshCM/releases/tag/v1.13.1
 [1.13.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.13.0
 [1.12.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.12.0
 [1.11.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.11.0

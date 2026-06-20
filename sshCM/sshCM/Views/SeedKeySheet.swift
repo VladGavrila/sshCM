@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct SeedKeySheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -325,6 +326,13 @@ struct SeedKeySheet: View {
     }
 
     private func handleCompletion(kind: WatchFiles.Kind, exitCode: String, logURL: URL) {
+        // The setup ran in Terminal, which took focus. Now that the command has
+        // finished, bring sshCM forward so the user sees the result (and, after a
+        // keygen, the key-selection step) instead of being left on the Terminal
+        // window. Only reached when the command actually completed — not on the
+        // timeout path, where the user may still be entering a password.
+        NSApp.activate(ignoringOtherApps: true)
+
         switch kind {
         case .copy:
             if exitCode == "0" {
