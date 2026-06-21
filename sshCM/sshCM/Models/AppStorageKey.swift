@@ -34,4 +34,8 @@ enum AppStorageKey: String, CaseIterable {
     case hostsViewMode
     case showOnlyReachable
     case defaultPublicKeyPath
+
+    // MARK: - VNCLauncher
+    case defaultMacOSVNCAppPath
+    case defaultLinuxVNCAppPath
 }

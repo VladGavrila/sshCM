@@ -230,6 +230,27 @@ struct sshCMApp: App {
                     alert.runModal()
                 }
             },
+            onConnectVNC: { host in
+                guard let target = host.hostName?.trimmingCharacters(in: .whitespaces), !target.isEmpty else { return }
+                let macOSAppPath = UserDefaults.standard.string(forKey: AppStorageKey.defaultMacOSVNCAppPath.rawValue)
+                    ?? VNCLauncher.defaultMacOSVNCAppPath
+                let linuxAppPath = UserDefaults.standard.string(forKey: AppStorageKey.defaultLinuxVNCAppPath.rawValue) ?? ""
+                do {
+                    try VNCLauncher.launch(
+                        toHost: target,
+                        port: host.vncPort ?? 5900,
+                        os: host.os,
+                        user: host.user,
+                        macOSAppPath: macOSAppPath,
+                        linuxAppPath: linuxAppPath
+                    )
+                } catch {
+                    let alert = NSAlert()
+                    alert.messageText = "Could not open VNC client"
+                    alert.informativeText = error.localizedDescription
+                    alert.runModal()
+                }
+            },
             onEdit: { host in
                 Self.surfaceMainWindow()
                 bridge.pendingEdit = host

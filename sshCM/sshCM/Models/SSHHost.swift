@@ -1,6 +1,10 @@
 import Foundation
 
 struct SSHHost: Identifiable, Hashable {
+    enum OS: String, CaseIterable, Hashable {
+        case macOS, linux
+    }
+
     var id: UUID
     var aliases: [String]
     var searchAliases: [String]
@@ -10,6 +14,11 @@ struct SSHHost: Identifiable, Hashable {
     var identityFile: String?
     var proxyJump: String?
     var alternateUsers: [String]
+    /// Best-effort/manual OS classification, used to pick a VNC client. `nil`
+    /// means unset — never inferred from absence of a detection match.
+    var os: OS?
+    /// VNC port override. `nil` means the default (5900).
+    var vncPort: Int?
     /// On-demand `-L` forwards (display label + spec). Stored as sshCM metadata
     /// comments, not native `LocalForward` directives, so plain connects don't
     /// forward — see `PortForward`.
@@ -30,6 +39,8 @@ struct SSHHost: Identifiable, Hashable {
         alternateUsers: [String] = [],
         localForwards: [PortForward] = [],
         remoteForwards: [PortForward] = [],
+        os: OS? = nil,
+        vncPort: Int? = nil,
         rawLines: [String] = []
     ) {
         self.id = id
@@ -43,6 +54,8 @@ struct SSHHost: Identifiable, Hashable {
         self.alternateUsers = alternateUsers
         self.localForwards = localForwards
         self.remoteForwards = remoteForwards
+        self.os = os
+        self.vncPort = vncPort
         self.rawLines = rawLines
     }
 

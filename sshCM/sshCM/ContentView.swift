@@ -27,6 +27,8 @@ struct ContentView: View {
     @Environment(PaletteBridge.self) private var paletteBridge
 
     @AppStorage(AppStorageKey.defaultTerminalAppPath.rawValue) private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
+    @AppStorage(AppStorageKey.defaultMacOSVNCAppPath.rawValue) private var macOSVNCAppPath: String = VNCLauncher.defaultMacOSVNCAppPath
+    @AppStorage(AppStorageKey.defaultLinuxVNCAppPath.rawValue) private var linuxVNCAppPath: String = ""
 
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
@@ -511,6 +513,25 @@ struct ContentView: View {
         )
     }
 
+    private func connectVNC(to host: SSHHost) {
+        guard let target = host.hostName?.trimmingCharacters(in: .whitespaces), !target.isEmpty else {
+            connectError = "Host has no HostName to connect to via VNC."
+            return
+        }
+        do {
+            try VNCLauncher.launch(
+                toHost: target,
+                port: host.vncPort ?? 5900,
+                os: host.os,
+                user: host.user,
+                macOSAppPath: macOSVNCAppPath,
+                linuxAppPath: linuxVNCAppPath
+            )
+        } catch {
+            connectError = error.localizedDescription
+        }
+    }
+
     /// Connects normally after the user removed a changed host key.
     private func connectAfterRemoval(_ warning: HostConnector.KeyWarning) {
         do {
@@ -620,7 +641,8 @@ struct ContentView: View {
                             onConnectAs: { user in connect(to: host, as: user) },
                             onConnectForwarding: { local, remote in
                                 connectForwarding(to: host, includeLocal: local, includeRemote: remote)
-                            }
+                            },
+                            onConnectVNC: { connectVNC(to: host) }
                         )
                     }
                 }
@@ -641,7 +663,8 @@ struct ContentView: View {
                     onConnectAs: { user in connect(to: host, as: user) },
                     onConnectForwarding: { local, remote in
                         connectForwarding(to: host, includeLocal: local, includeRemote: remote)
-                    }
+                    },
+                    onConnectVNC: { connectVNC(to: host) }
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.visible)

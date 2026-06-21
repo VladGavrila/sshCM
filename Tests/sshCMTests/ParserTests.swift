@@ -159,6 +159,38 @@ struct MetadataMarkerTests {
         #expect(SSHConfigParser.alternateUsersMarker == "# sshCM-users:")
         #expect(SSHConfigParser.localForwardMarker == "# sshCM-localforward:")
         #expect(SSHConfigParser.remoteForwardMarker == "# sshCM-remoteforward:")
+        #expect(SSHConfigParser.osMarker == "# sshCM-os:")
+        #expect(SSHConfigParser.vncPortMarker == "# sshCM-vncport:")
+    }
+
+    @Test func macOSMarkerParsed() {
+        let text = "Host myserver\n    # sshCM-os: macOS\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].os == .macOS)
+    }
+
+    @Test func linuxMarkerParsed() {
+        let text = "Host myserver\n    # sshCM-os: linux\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].os == .linux)
+    }
+
+    @Test func osMarkerLookupCaseInsensitive() {
+        let text = "Host myserver\n    # sshCM-os: MACOS\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].os == .macOS)
+    }
+
+    @Test func missingOSMarkerLeavesOSUnset() {
+        let text = "Host myserver\n    HostName example.com\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].os == nil)
+    }
+
+    @Test func vncPortMarkerParsed() {
+        let text = "Host myserver\n    # sshCM-vncport: 5901\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].vncPort == 5901)
+    }
+
+    @Test func missingVNCPortMarkerLeavesVNCPortUnset() {
+        let text = "Host myserver\n    HostName example.com\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].vncPort == nil)
     }
 
     @Test func searchAliasesParsed() {
@@ -249,6 +281,32 @@ struct RoundTripTests {
         let reparsed = SSHConfigParser.parse(file.serialize())
         #expect(reparsed.hosts[0].localForwards == file.hosts[0].localForwards)
         #expect(reparsed.hosts[0].remoteForwards == file.hosts[0].remoteForwards)
+    }
+
+    @Test func osAndVNCPortRoundTrip() {
+        let text = "Host myserver\n    # sshCM-os: linux\n    # sshCM-vncport: 5901\n"
+        let file = SSHConfigParser.parse(text)
+        let reparsed = SSHConfigParser.parse(file.serialize())
+        #expect(reparsed.hosts[0].os == .linux)
+        #expect(reparsed.hosts[0].vncPort == 5901)
+    }
+
+    // The default VNC port (5900) is never written back out, matching the
+    // "only persist if non-default" convention used elsewhere for optional fields.
+    @Test func defaultVNCPortIsNotSerialized() {
+        var host = SSHHost(aliases: ["myserver"])
+        host.vncPort = 5900
+        var file = SSHConfigFile()
+        file.append(host: host)
+        #expect(!file.serialize().contains(SSHConfigParser.vncPortMarker))
+    }
+
+    @Test func nonDefaultVNCPortIsSerialized() {
+        var host = SSHHost(aliases: ["myserver"])
+        host.vncPort = 5901
+        var file = SSHConfigFile()
+        file.append(host: host)
+        #expect(file.serialize().contains("# sshCM-vncport: 5901"))
     }
 
     @Test func multipleHostsRoundTrip() {

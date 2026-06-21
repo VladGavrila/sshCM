@@ -59,6 +59,16 @@ enum SSHConfigParser {
                 continue
             }
 
+            if currentHost != nil, let os = parseOSComment(trimmed) {
+                currentHost?.os = os
+                continue
+            }
+
+            if currentHost != nil, let port = parseVNCPortComment(trimmed) {
+                currentHost?.vncPort = port
+                continue
+            }
+
             if let kw = keyword, kw.caseInsensitiveCompare("Match") == .orderedSame {
                 flushHost()
                 inMatchBlock = true
@@ -118,6 +128,8 @@ enum SSHConfigParser {
     static let alternateUsersMarker = "# sshCM-users:"
     static let localForwardMarker = "# sshCM-localforward:"
     static let remoteForwardMarker = "# sshCM-remoteforward:"
+    static let osMarker = "# sshCM-os:"
+    static let vncPortMarker = "# sshCM-vncport:"
 
     private static func parseSearchAliasesComment(_ trimmed: String) -> [String]? {
         guard trimmed.lowercased().hasPrefix(searchAliasesMarker.lowercased()) else { return nil }
@@ -148,6 +160,18 @@ enum SSHConfigParser {
         let spec = String(parts[0])
         let note = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : ""
         return PortForward(spec: spec, note: note)
+    }
+
+    private static func parseOSComment(_ trimmed: String) -> SSHHost.OS? {
+        guard trimmed.lowercased().hasPrefix(osMarker.lowercased()) else { return nil }
+        let payload = trimmed.dropFirst(osMarker.count).trimmingCharacters(in: .whitespaces)
+        return SSHHost.OS.allCases.first { $0.rawValue.caseInsensitiveCompare(payload) == .orderedSame }
+    }
+
+    private static func parseVNCPortComment(_ trimmed: String) -> Int? {
+        guard trimmed.lowercased().hasPrefix(vncPortMarker.lowercased()) else { return nil }
+        let payload = trimmed.dropFirst(vncPortMarker.count).trimmingCharacters(in: .whitespaces)
+        return Int(payload)
     }
 
     private static func unquote(_ s: String) -> String {

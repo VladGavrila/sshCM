@@ -9,6 +9,7 @@ struct HostCardView: View {
     let onConnectAs: (String) -> Void
     /// Connect while applying the host's stored port forwards: `(includeLocal, includeRemote)`.
     let onConnectForwarding: (Bool, Bool) -> Void
+    let onConnectVNC: () -> Void
 
     @Environment(FavoritesStore.self) private var favorites
     @Environment(TagsStore.self) private var tagsStore
@@ -104,6 +105,14 @@ struct HostCardView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Edit host")
+
+                if host.os != nil {
+                    Button(action: onConnectVNC) {
+                        Image(systemName: "display")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Connect via VNC")
+                }
 
                 connectButton
             }

@@ -5,6 +5,7 @@ struct CommandPaletteView: View {
     let onConnect: (SSHHost, String?) -> Void
     /// Connect applying the host's stored forwards: `(host, user, includeLocal, includeRemote)`.
     let onConnectForwarding: (SSHHost, String?, Bool, Bool) -> Void
+    let onConnectVNC: (SSHHost) -> Void
     let onEdit: (SSHHost) -> Void
     let onCopy: (SSHHost) -> Void
     let onCopyIP: (SSHHost) -> Void
@@ -90,6 +91,12 @@ struct CommandPaletteView: View {
                     if selectedHostHasLocalForwards {
                         hint("⇧↵", "ssh -L")
                     }
+                    if selectedHostHasRemoteForwards {
+                        hint("⌃↵", "ssh -R")
+                    }
+                    if selectedHostHasVNC {
+                        hint("⌘↵", "VNC")
+                    }
                     hint("⌘E", "Edit")
                     hint("⌘I", "Copy IP")
                     hint("⌘R", "Refresh")
@@ -147,6 +154,10 @@ struct CommandPaletteView: View {
             }
             if mods.contains(.control), let host = selectedHost, !host.remoteForwards.isEmpty {
                 onConnectForwarding(host, nil, false, true)
+                return .handled
+            }
+            if mods.contains(.command), let host = selectedHost, host.os != nil {
+                onConnectVNC(host)
                 return .handled
             }
             activateSelected()
@@ -336,6 +347,14 @@ struct CommandPaletteView: View {
 
     private var selectedHostHasLocalForwards: Bool {
         selectedHost.map { !$0.localForwards.isEmpty } ?? false
+    }
+
+    private var selectedHostHasRemoteForwards: Bool {
+        selectedHost.map { !$0.remoteForwards.isEmpty } ?? false
+    }
+
+    private var selectedHostHasVNC: Bool {
+        selectedHost.map { $0.os != nil } ?? false
     }
 
     private func move(by delta: Int) {

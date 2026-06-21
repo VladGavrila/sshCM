@@ -9,6 +9,8 @@ struct SettingsView: View {
 
     @AppStorage("defaultTerminalAppPath") private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
     @AppStorage(TerminalLauncher.keepSessionOpenKey) private var keepSessionOpen: Bool = true
+    @AppStorage(AppStorageKey.defaultMacOSVNCAppPath.rawValue) private var macOSVNCAppPath: String = VNCLauncher.defaultMacOSVNCAppPath
+    @AppStorage(AppStorageKey.defaultLinuxVNCAppPath.rawValue) private var linuxVNCAppPath: String = ""
     @AppStorage("defaultPublicKeyPath") private var defaultPublicKeyPath: String = ""
     @AppStorage("autoCheckForUpdates") private var autoCheck: Bool = true
     @AppStorage(KeyShortcut.StorageKey.enabled) private var hotKeyEnabled: Bool = true
@@ -43,6 +45,35 @@ struct SettingsView: View {
 
                 Toggle("Keep terminal open after session ends", isOn: $keepSessionOpen)
                 Text("Stays in an interactive shell when ssh exits (logout or connection reset) so you can review the session. Turn off to close the tab automatically.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                HStack {
+                    Text(macOSVNCDisplayName)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("Choose…", action: chooseMacOSVNCApp)
+                    Button("Reset") {
+                        macOSVNCAppPath = VNCLauncher.defaultMacOSVNCAppPath
+                    }
+                }
+                HStack {
+                    Text(linuxVNCDisplayName)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("Choose…", action: chooseLinuxVNCApp)
+                    Button("Reset") {
+                        linuxVNCAppPath = ""
+                    }
+                }
+            } header: {
+                Text("VNC")
+            } footer: {
+                Text("Used for the \"Connect via VNC\" action. macOS hosts open with the app above by default (Screen Sharing); Linux hosts open with the app you choose here (e.g. TigerVNC). If a chosen app isn't found, sshCM falls back to your system's default vnc:// handler.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -289,6 +320,15 @@ struct SettingsView: View {
         return url.deletingPathExtension().lastPathComponent
     }
 
+    private var macOSVNCDisplayName: String {
+        URL(fileURLWithPath: macOSVNCAppPath).deletingPathExtension().lastPathComponent
+    }
+
+    private var linuxVNCDisplayName: String {
+        guard !linuxVNCAppPath.isEmpty else { return "System default (vnc:// handler)" }
+        return URL(fileURLWithPath: linuxVNCAppPath).deletingPathExtension().lastPathComponent
+    }
+
     private var lastCheckedDescription: String {
         guard let date = updater.lastCheck else { return "Never" }
         return date.formatted(date: .abbreviated, time: .shortened)
@@ -339,6 +379,27 @@ struct SettingsView: View {
         if panel.runModal() == .OK, let url = panel.url {
             terminalAppPath = url.path
         }
+    }
+
+    private func chooseMacOSVNCApp() {
+        guard let url = chooseApplication(title: "Choose macOS VNC Application") else { return }
+        macOSVNCAppPath = url.path
+    }
+
+    private func chooseLinuxVNCApp() {
+        guard let url = chooseApplication(title: "Choose Linux VNC Application") else { return }
+        linuxVNCAppPath = url.path
+    }
+
+    private func chooseApplication(title: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = title
+        panel.allowedContentTypes = [UTType.application]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        return panel.runModal() == .OK ? panel.url : nil
     }
 }
 
