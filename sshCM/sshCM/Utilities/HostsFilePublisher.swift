@@ -11,17 +11,12 @@ import AppKit
 /// admin-authentication prompt (`osascript … with administrator privileges`).
 /// To avoid prompting needlessly, a sync that wouldn't change the managed block
 /// is skipped entirely (no prompt).
+///
+/// Pure block-computation helpers live in `HostsFileBlock` (Models/) so they can
+/// be tested without AppKit or elevated privileges.
 enum HostsFilePublisher {
-    /// Whether alias publishing is enabled. Mirrored as an `@AppStorage` toggle
-    /// in Settings.
-    static let defaultsKey = "publishAliasesToHostsFile"
-
+    static let defaultsKey = AppStorageKey.publishAliasesToHostsFile.rawValue
     static let hostsPath = "/etc/hosts"
-    private static let beginMarkerPrefix = "# BEGIN sshCM-managed"
-    private static let endMarkerPrefix = "# END sshCM-managed"
-    private static let beginMarker =
-        "# BEGIN sshCM-managed — do not edit (managed by sshCM; changes here are overwritten)"
-    private static let endMarker = "# END sshCM-managed"
 
     enum SyncResult: Equatable {
         /// The managed block already matched — no write, no prompt.
@@ -55,84 +50,15 @@ enum HostsFilePublisher {
         await sync(hosts: [])
     }
 
-    // MARK: - Block computation (pure / testable)
-
-    /// One `IP<tab>alias…` line per publishable host. Aliases that are SSH
-    /// patterns (`*`, `?`) or otherwise invalid as hostnames are dropped, and a
-    /// given alias is only published once (first host wins).
-    static func managedEntries(for hosts: [SSHHost]) -> [String] {
-        var claimed = Set<String>()
-        var lines: [String] = []
-        for host in hosts {
-            guard let ip = host.hostName?.trimmingCharacters(in: .whitespaces),
-                  isLiteralIP(ip) else { continue }
-            let names = host.aliases
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { isPublishableHostname($0) && !claimed.contains($0) }
-            guard !names.isEmpty else { continue }
-            names.forEach { claimed.insert($0) }
-            lines.append("\(ip)\t\(names.joined(separator: " "))")
-        }
-        return lines
-    }
-
     /// The full `/etc/hosts` text after replacing the managed block, or `nil`
     /// when it would be identical to what's already on disk.
     static func plannedContent(for hosts: [SSHHost]) -> String? {
         let current = (try? String(contentsOfFile: hostsPath, encoding: .utf8)) ?? ""
-        let rebuilt = rebuild(current: current, entries: managedEntries(for: hosts))
+        let rebuilt = HostsFileBlock.rebuild(
+            current: current,
+            entries: HostsFileBlock.managedEntries(for: hosts)
+        )
         return rebuilt == current ? nil : rebuilt
-    }
-
-    /// Replaces (or removes) the managed block within `current`, leaving all
-    /// other lines untouched.
-    private static func rebuild(current: String, entries: [String]) -> String {
-        var lines = current.components(separatedBy: "\n")
-        if let start = lines.firstIndex(where: { $0.hasPrefix(beginMarkerPrefix) }),
-           let end = lines[start...].firstIndex(where: { $0.hasPrefix(endMarkerPrefix) }) {
-            lines.removeSubrange(start...end)
-            // Collapse the blank line that used to separate the block.
-            if start < lines.count, lines[start].trimmingCharacters(in: .whitespaces).isEmpty {
-                lines.remove(at: start)
-            }
-        }
-
-        var base = lines.joined(separator: "\n")
-        while base.hasSuffix("\n") || base.hasSuffix(" ") || base.hasSuffix("\t") {
-            base.removeLast()
-        }
-
-        guard !entries.isEmpty else {
-            return base.isEmpty ? "" : base + "\n"
-        }
-        let block = ([beginMarker] + entries + [endMarker]).joined(separator: "\n")
-        return base.isEmpty ? block + "\n" : base + "\n\n" + block + "\n"
-    }
-
-    // MARK: - Validation
-
-    static func isLiteralIP(_ value: String) -> Bool {
-        guard !value.isEmpty else { return false }
-        return value.withCString { cstr in
-            var v4 = in_addr()
-            if inet_pton(AF_INET, cstr, &v4) == 1 { return true }
-            var v6 = in6_addr()
-            return inet_pton(AF_INET6, cstr, &v6) == 1
-        }
-    }
-
-    /// Characters allowed in a hostname / SSH alias: DNS-label characters only
-    /// (letters, digits, hyphen, dot, underscore). Everything else is excluded —
-    /// whitespace, SSH glob/negation/comment characters (`* ? ! #`), `@`, `:`,
-    /// `/`, quotes, and any other punctuation.
-    static let hostnameAllowedCharacters = CharacterSet(charactersIn:
-        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
-
-    /// A hostname safe to write into `/etc/hosts`: non-empty, no whitespace, no
-    /// SSH glob/negation characters, only DNS-label characters.
-    static func isPublishableHostname(_ value: String) -> Bool {
-        guard !value.isEmpty, value.count <= 253 else { return false }
-        return value.unicodeScalars.allSatisfy { hostnameAllowedCharacters.contains($0) }
     }
 
     // MARK: - Privileged write

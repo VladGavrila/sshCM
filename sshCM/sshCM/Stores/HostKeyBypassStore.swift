@@ -10,7 +10,7 @@ import Observation
 final class HostKeyBypassStore {
     private(set) var aliases: Set<String>
 
-    private let defaultsKey = "hostKeyBypassAliases"
+    private let defaultsKey = AppStorageKey.hostKeyBypassAliases.rawValue
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {

@@ -26,7 +26,7 @@ struct ContentView: View {
     @Environment(UpdateChecker.self) private var updater
     @Environment(PaletteBridge.self) private var paletteBridge
 
-    @AppStorage("defaultTerminalAppPath") private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
+    @AppStorage(AppStorageKey.defaultTerminalAppPath.rawValue) private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
 
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
@@ -45,8 +45,8 @@ struct ContentView: View {
     @State private var seedAfterWarningDismiss: SeedRequest?
     @State private var presentedRelease: UpdateChecker.Release?
     @State private var typeAheadMonitor: Any?
-    @AppStorage("hostsViewMode") private var viewModeRaw: String = HostsViewMode.card.rawValue
-    @AppStorage("showOnlyReachable") private var showOnlyReachable: Bool = false
+    @AppStorage(AppStorageKey.hostsViewMode.rawValue) private var viewModeRaw: String = HostsViewMode.card.rawValue
+    @AppStorage(AppStorageKey.showOnlyReachable.rawValue) private var showOnlyReachable: Bool = false
     @State private var showingExport = false
     @State private var importSession: ImportSession?
     @State private var importError: String?
@@ -573,51 +573,21 @@ struct ContentView: View {
 
     private var sortedHosts: [SSHHost] {
         let untaggedRank = HostTag.allCases.count
-
-        let sorted = store.file.hosts.sorted { a, b in
-            let aAlias = a.aliases.first ?? ""
-            let bAlias = b.aliases.first ?? ""
-
-            let aFav = favorites.isFavorite(aAlias)
-            let bFav = favorites.isFavorite(bAlias)
-            if aFav != bFav { return aFav }
-
-            let aTagRank = tagsStore.tag(for: aAlias).map { tagsStore.rank(for: $0) } ?? untaggedRank
-            let bTagRank = tagsStore.tag(for: bAlias).map { tagsStore.rank(for: $0) } ?? untaggedRank
-            if aTagRank != bTagRank { return aTagRank < bTagRank }
-
-            return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
-        }
-        let reachFiltered: [SSHHost]
-        if showOnlyReachable {
-            reachFiltered = sorted.filter { host in
-                guard let key = ReachabilityCache.cacheKey(for: host) else { return false }
-                return reachCache.status(for: key) == .reachable
-            }
-        } else {
-            reachFiltered = sorted
-        }
-        let query = searchText.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return reachFiltered }
-        return reachFiltered.filter { host in
-            let tagName = host.aliases.first
-                .flatMap { tagsStore.tag(for: $0) }
-                .map { tagsStore.displayName(for: $0) }
-            var haystacks: [String?] = [
-                host.title,
-                host.hostName,
-                host.user,
-                host.identityFile,
-                host.proxyJump,
-                host.port.map(String.init),
-                tagName
-            ]
-            haystacks.append(contentsOf: host.searchAliases.map { Optional($0) })
-            return haystacks.contains { value in
-                guard let value, !value.isEmpty else { return false }
-                return value.localizedCaseInsensitiveContains(query)
-            }
-        }
+        return HostListFilter(searchText: searchText, showOnlyReachable: showOnlyReachable)
+            .apply(
+                hosts: store.file.hosts,
+                isFavorite: { favorites.isFavorite($0) },
+                tagRank: { alias in
+                    tagsStore.tag(for: alias).map { tagsStore.rank(for: $0) } ?? untaggedRank
+                },
+                tagName: { alias in
+                    tagsStore.tag(for: alias).map { tagsStore.displayName(for: $0) }
+                },
+                isReachable: { host in
+                    guard let key = ReachabilityCache.cacheKey(for: host) else { return false }
+                    return reachCache.status(for: key) == .reachable
+                }
+            )
     }
 
     @ViewBuilder

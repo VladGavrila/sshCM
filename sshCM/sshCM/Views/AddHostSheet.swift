@@ -85,7 +85,7 @@ struct AddHostSheet: View {
     /// hostname, using the shared allowed set. The search-aliases field also keeps
     /// commas, which separate the individual aliases.
     private static func sanitizeAlias(_ value: String, allowComma: Bool) -> String {
-        var allowed = HostsFilePublisher.hostnameAllowedCharacters
+        var allowed = HostsFileBlock.hostnameAllowedCharacters
         if allowComma { allowed.insert(charactersIn: ",") }
         return String(String.UnicodeScalarView(
             value.unicodeScalars.filter { allowed.contains($0) }
@@ -156,7 +156,7 @@ struct AddHostSheet: View {
     }
 
     private func isValidHostField(_ value: String) -> Bool {
-        HostsFilePublisher.isPublishableHostname(value.trimmed)
+        HostsFileBlock.isPublishableHostname(value.trimmed)
     }
 
     private var forwardingBinding: Binding<Bool> {
@@ -174,7 +174,7 @@ struct AddHostSheet: View {
     private var aliasError: String? {
         let value = alias.trimmed
         guard !value.isEmpty else { return nil }
-        guard HostsFilePublisher.isPublishableHostname(value) else {
+        guard HostsFileBlock.isPublishableHostname(value) else {
             return "Alias can't contain spaces or special characters (use - . _)."
         }
         let collides = store.file.hosts.contains { host in

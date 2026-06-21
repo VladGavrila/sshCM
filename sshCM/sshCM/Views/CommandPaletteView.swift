@@ -511,31 +511,9 @@ struct CommandPaletteView: View {
     }
 
     private func score(host: SSHHost, query: String) -> Int {
-        let q = query.lowercased()
-        let alias = (host.aliases.first ?? "").lowercased()
-
-        if !alias.isEmpty {
-            if alias == q { return 1000 }
-            if alias.hasPrefix(q) { return 500 + max(0, 20 - (alias.count - q.count)) }
-            if alias.contains(q) { return 100 }
-        }
-
-        for sa in host.searchAliases.map({ $0.lowercased() }) where !sa.isEmpty {
-            if sa == q { return 900 }
-            if sa.hasPrefix(q) { return 400 + max(0, 20 - (sa.count - q.count)) }
-            if sa.contains(q) { return 80 }
-        }
-
         let tagName = host.aliases.first
             .flatMap { tagsStore.tag(for: $0) }
             .map { tagsStore.displayName(for: $0) }
-        let others: [String?] = [
-            host.title, host.hostName, host.user, host.identityFile, host.proxyJump,
-            host.port.map(String.init), tagName
-        ]
-        for value in others.compactMap({ $0?.lowercased() }) where !value.isEmpty {
-            if value.contains(q) { return 10 }
-        }
-        return 0
+        return HostSearchScorer.score(host: host, query: query, tagName: tagName)
     }
 }

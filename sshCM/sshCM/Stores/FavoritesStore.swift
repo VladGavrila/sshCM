@@ -6,7 +6,7 @@ import Observation
 final class FavoritesStore {
     private(set) var aliases: Set<String>
 
-    private let defaultsKey = "favoriteAliases"
+    private let defaultsKey = AppStorageKey.favoriteAliases.rawValue
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {

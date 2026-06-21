@@ -29,7 +29,7 @@ enum SSHConfigParser {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             let (keyword, value) = splitKeyValue(trimmed)
 
-            if let kw = keyword, kw.caseInsensitiveCompare("Host") == .orderedSame, !inMatchBlock || true {
+            if let kw = keyword, kw.caseInsensitiveCompare("Host") == .orderedSame {
                 // New Host block always starts fresh.
                 inMatchBlock = false
                 flushHost()
@@ -103,7 +103,7 @@ enum SSHConfigParser {
                 return (String(key), String(val))
             }
         }
-        let parts = trimmed.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        let parts = trimmed.split(maxSplits: 1, omittingEmptySubsequences: true) { $0.isWhitespace }
         if parts.isEmpty { return (nil, "") }
         let key = String(parts[0])
         let val = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : ""
