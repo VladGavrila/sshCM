@@ -2,6 +2,22 @@
 
 All notable changes to **sshCM** ("SSH Config Manager") are documented here, newest first. Each entry corresponds to a [GitHub release](https://github.com/VladGavrila/sshCM/releases).
 
+## [1.14.0] — 2026-06-20
+
+### Added
+- **Connect via VNC.** A screen icon, shown only once a host is classified, opens a graphical session — Apple's built-in *Screen Sharing.app* for macOS hosts, or a user-configurable app (e.g. TigerVNC) for Linux hosts, set in **Settings → VNC**. The VNC button appears before the terminal/connect button on cards and rows. Each host is classified manually via a "Host OS" picker (alongside the VNC Port field) in Add/Edit Host's Advanced section — left unset by default, no automatic detection. An optional non-default VNC port can be set per host. Classification and port are stored as `# sshCM-os:` / `# sshCM-vncport:` comments inside the `Host` block, following the same private-metadata convention as `# sshCM-aliases:` / `# sshCM-users:`, so they round-trip untouched and never affect plain `ssh`. In the Command Palette, **⌘↵** connects via VNC for a classified host (shown as a hint only when applicable).
+
+### Improved
+- **Automated test coverage for the config round-trip guarantee.** A Swift Package (`Package.swift`) alongside the Xcode project makes the pure Foundation-only model layer runnable. 133 tests across 18 suites cover the parser, serializer, ID-preservation mechanism, ProxyJump alias extraction, semantic version comparison, host list filtering, palette search scoring, `/etc/hosts` block computation, and all sshCM metadata markers.
+- **Tab-separated key–value pairs in `~/.ssh/config` are now parsed correctly.** OpenSSH allows tabs as key–value separators (e.g. `HostName\texample.com`). Previously such lines were silently demoted to `rawLines`, causing `HostName`, `User`, `Port`, `IdentityFile`, and `ProxyJump` to be invisible to the UI. They are now parsed on a par with space-separated lines.
+- **Host list filter and palette search scoring extracted into testable types.** `ContentView.sortedHosts` (47-line embedded sort/filter/search) has been replaced by `HostListFilter`, a pure struct whose closures accept injected callbacks for favourites, tag ranks, and reachability. `CommandPaletteView.score(host:query:)` has been extracted to `HostSearchScorer`, a stateless enum with an explicit scoring hierarchy (`exact alias 1000 > exact search alias 900 > prefix alias 500+ > …`). Both types live in `Models/` and are covered by the new test suite.
+- **`/etc/hosts` block computation split into its own testable type.** The pure functions previously embedded in `HostsFilePublisher` (`managedEntries`, `rebuild`, `isLiteralIP`, `isPublishableHostname`, marker constants) are now in `HostsFileBlock` (Foundation + Darwin only, no AppKit). `HostsFilePublisher` delegates to `HostsFileBlock` for all block logic; the I/O and privilege-elevation paths are unchanged.
+- **All UserDefaults keys centralised in `AppStorageKey`.** Fifteen string literals scattered across `FavoritesStore`, `TagsStore`, `HostKeyBypassStore`, `HostsFilePublisher`, `UpdateChecker`, `TerminalLauncher`, `ContentView`, `SettingsView`, and `SeedKeySheet` are now defined once in `AppStorageKey` (a `CaseIterable` `String` enum). A test asserts all 15 keys are unique. All store initializers and `@AppStorage` declarations updated to use the enum.
+- **`ConfigStore` accepts an injected config URL for testing.** The hardcoded `~/.ssh/config` path is now a default argument (`init(configURL: URL? = nil)`), leaving runtime behaviour unchanged while enabling isolated test scenarios that do not touch the real config file.
+
+### Fixed
+- **Parser no longer treats `Host` inside a `Match` block as an ambiguous case.** The `!inMatchBlock || true` tautology (always `true`) that guarded the `Host` keyword handler has been removed; the condition is now a plain keyword check. Behaviour is identical — `Host` always starts a fresh stanza — but the intent is no longer hidden behind dead code.
+
 ## [1.13.1] — 2026-06-19
 
 ### Fixed
@@ -178,6 +194,7 @@ All notable changes to **sshCM** ("SSH Config Manager") are documented here, new
   - **Configure terminal** in Settings (defaults to Terminal.app).
 - Config handling preserves structure: atomic `0600` writes, `~/.ssh` created `0700` if missing, and comments, blank lines, global directives, `Include`/`Match` blocks, and unknown keys round-trip verbatim.
 
+[1.14.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.14.0
 [1.13.1]: https://github.com/VladGavrila/sshCM/releases/tag/v1.13.1
 [1.13.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.13.0
 [1.12.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.12.0

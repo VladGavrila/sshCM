@@ -8,9 +8,9 @@ final class TagsStore {
     private(set) var tagOrder: [HostTag]
     private(set) var tagNames: [HostTag: String]
 
-    private let tagsKey = "hostTags"
-    private let orderKey = "hostTagOrder"
-    private let namesKey = "hostTagNames"
+    private let tagsKey  = AppStorageKey.hostTags.rawValue
+    private let orderKey = AppStorageKey.hostTagOrder.rawValue
+    private let namesKey = AppStorageKey.hostTagNames.rawValue
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {

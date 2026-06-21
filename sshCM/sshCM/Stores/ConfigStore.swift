@@ -7,9 +7,17 @@ final class ConfigStore {
     var file = SSHConfigFile()
     var loadError: String?
 
-    private let fileURL: URL = FileManager.default
+    static let defaultConfigURL: URL = FileManager.default
         .homeDirectoryForCurrentUser
         .appendingPathComponent(".ssh/config")
+
+    private let fileURL: URL
+
+    // The default is evaluated at call-site so it must not reference the
+    // @MainActor-isolated static directly; instead it is resolved in the body.
+    init(configURL: URL? = nil) {
+        self.fileURL = configURL ?? ConfigStore.defaultConfigURL
+    }
 
     func load() {
         loadError = nil

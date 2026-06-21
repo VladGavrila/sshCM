@@ -5,6 +5,7 @@ struct CommandPaletteView: View {
     let onConnect: (SSHHost, String?) -> Void
     /// Connect applying the host's stored forwards: `(host, user, includeLocal, includeRemote)`.
     let onConnectForwarding: (SSHHost, String?, Bool, Bool) -> Void
+    let onConnectVNC: (SSHHost) -> Void
     let onEdit: (SSHHost) -> Void
     let onCopy: (SSHHost) -> Void
     let onCopyIP: (SSHHost) -> Void
@@ -90,6 +91,12 @@ struct CommandPaletteView: View {
                     if selectedHostHasLocalForwards {
                         hint("⇧↵", "ssh -L")
                     }
+                    if selectedHostHasRemoteForwards {
+                        hint("⌃↵", "ssh -R")
+                    }
+                    if selectedHostHasVNC {
+                        hint("⌘↵", "VNC")
+                    }
                     hint("⌘E", "Edit")
                     hint("⌘I", "Copy IP")
                     hint("⌘R", "Refresh")
@@ -147,6 +154,10 @@ struct CommandPaletteView: View {
             }
             if mods.contains(.control), let host = selectedHost, !host.remoteForwards.isEmpty {
                 onConnectForwarding(host, nil, false, true)
+                return .handled
+            }
+            if mods.contains(.command), let host = selectedHost, host.os != nil {
+                onConnectVNC(host)
                 return .handled
             }
             activateSelected()
@@ -338,6 +349,14 @@ struct CommandPaletteView: View {
         selectedHost.map { !$0.localForwards.isEmpty } ?? false
     }
 
+    private var selectedHostHasRemoteForwards: Bool {
+        selectedHost.map { !$0.remoteForwards.isEmpty } ?? false
+    }
+
+    private var selectedHostHasVNC: Bool {
+        selectedHost.map { $0.os != nil } ?? false
+    }
+
     private func move(by delta: Int) {
         guard !results.isEmpty else { return }
         let next = selectedIndex + delta
@@ -511,31 +530,9 @@ struct CommandPaletteView: View {
     }
 
     private func score(host: SSHHost, query: String) -> Int {
-        let q = query.lowercased()
-        let alias = (host.aliases.first ?? "").lowercased()
-
-        if !alias.isEmpty {
-            if alias == q { return 1000 }
-            if alias.hasPrefix(q) { return 500 + max(0, 20 - (alias.count - q.count)) }
-            if alias.contains(q) { return 100 }
-        }
-
-        for sa in host.searchAliases.map({ $0.lowercased() }) where !sa.isEmpty {
-            if sa == q { return 900 }
-            if sa.hasPrefix(q) { return 400 + max(0, 20 - (sa.count - q.count)) }
-            if sa.contains(q) { return 80 }
-        }
-
         let tagName = host.aliases.first
             .flatMap { tagsStore.tag(for: $0) }
             .map { tagsStore.displayName(for: $0) }
-        let others: [String?] = [
-            host.title, host.hostName, host.user, host.identityFile, host.proxyJump,
-            host.port.map(String.init), tagName
-        ]
-        for value in others.compactMap({ $0?.lowercased() }) where !value.isEmpty {
-            if value.contains(q) { return 10 }
-        }
-        return 0
+        return HostSearchScorer.score(host: host, query: query, tagName: tagName)
     }
 }

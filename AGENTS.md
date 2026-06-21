@@ -150,6 +150,29 @@ The pure model files (`SSHHost.swift`, `SSHConfigFile.swift`, `SSHConfigParser.s
 
 Commits in this repo are tagged-release snapshots (`git log` shows `X.Y.Z release` commits on `main`).
 
+## Testing
+
+There **is** now a lightweight Swift Testing target, separate from the Xcode app target: `Package.swift` at the repo root compiles the pure, Foundation-only model/utility files (listed explicitly under `sshCMModels`/`sshCMUtilities` targets) into library targets, and `Tests/sshCMTests/` covers them with `@testable import sshCMModels`/`sshCMUtilities`.
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test   # from repo root
+```
+
+- **Run the suite before making changes**, to confirm your starting point is green, and **again after**, to confirm nothing broke — `swift test` is fast (well under a second) so there's no excuse to skip either side.
+- **Add or update tests for any new/changed functionality that lives in a file already listed in `Package.swift`** (currently: `SSHHost`, `SSHConfigFile`, `SSHConfigParser`, `PortForward`, `HostListFilter`, `HostSearchScorer`, `HostsFileBlock`, `AppStorageKey`, `SemanticVersion`). Follow the existing per-type `@Suite`/`@Test` structure in `Tests/sshCMTests/` (e.g. `ParserTests.swift` has `Parsing` / `sshCM metadata markers` / `Round-trip` suites — mirror that shape for new markers or fields).
+- If a new pure, Foundation-only file is added to `Models/` or `Utilities/` and deserves coverage, add it to the relevant target's `sources` list in `Package.swift` first.
+- Files that depend on AppKit/SwiftUI/Network or other non-Foundation frameworks (most of `Utilities/` and all of `Views/`/`Stores/`) aren't part of the SPM package and can't be unit tested this way — verify those by building and running the app per the section above.
+- A new `AppStorageKey` case requires bumping the expected count in `AppStorageKeyTests.keyCountMatchesExpected()` and adding its raw-value assertion — the test deliberately fails loudly on any unannounced add/remove.
+- This complements, not replaces, **manual verification by building and running the app** (see above) — `swift test` only covers the pure model/utility layer, not UI wiring, AppKit integration, or the full save/connect/launch flows.
+
+## Keeping CHANGELOG.md current
+
+**Every user-visible change must be reflected in `CHANGELOG.md`.** This includes follow-up fixes/tweaks made within the same conversation — don't leave the entry describing behavior that's since changed; update it in place rather than appending a near-duplicate bullet.
+
+- Before adding or amending an entry, **ask the user which version this work belongs to** (a new release, or a fix folded into the version still in progress) — don't guess or default to bumping automatically.
+- If the user names a new version, bump `MARKETING_VERSION` in `sshCM/sshCM.xcodeproj/project.pbxproj` (both build configurations) to match, and add a new `## [X.Y.Z] — <date>` section plus its link reference at the bottom of the file.
+- If the work folds into the version already at the top of the file, edit that section's existing bullets directly so they describe the current behavior.
+
 ## Conventions & gotchas
 
 - **Swift style:** `@MainActor @Observable final class` for stores; `enum` namespaces for stateless utilities (`TerminalLauncher`, `HostKeyVerifier`, `Reachability`, …); `nonisolated` + `Task.detached` for blocking subprocess/IO work off the main actor. Match the surrounding file's comment density — this codebase comments the *why*, especially around security and edge cases.
@@ -157,5 +180,5 @@ Commits in this repo are tagged-release snapshots (`git log` shows `X.Y.Z releas
 - **Never lose config data.** When touching the parser/serializer, keep unknown keys, comments, `Match`/`Include`, and ordering intact. The round-trip (parse → serialize) of an untouched file must be a no-op modulo the trailing newline.
 - **UserDefaults keys are an informal API** (they're also read in places via raw string literals, e.g. `defaultTerminalAppPath`, `defaultPublicKeyPath`). Don't rename without grepping for every literal use.
 - **App is not sandboxed** (`ENABLE_APP_SANDBOX = NO`) and uses **hardened runtime** — it needs to read/write `~/.ssh`, run `/usr/bin/ssh*`, write `/etc/hosts` (elevated), and replace its own bundle. Keep that in mind before assuming sandbox-style file access.
-- **No automated tests.** Verify changes by building and running the app, exercising the affected flow. For parser/store logic, the standalone-`swiftc` trick above is the closest thing to a unit test.
+- **Automated tests exist for the pure model/utility layer** (see Testing above) but not for UI/AppKit code. For those, verify changes by building and running the app, exercising the affected flow.
 - The `.claude/settings*.json` files pre-allow the common `xcodebuild` invocations.

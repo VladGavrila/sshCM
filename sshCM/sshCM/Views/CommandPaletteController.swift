@@ -18,6 +18,7 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         var reachCache: ReachabilityCache
         var onConnect: (SSHHost, String?) -> Void
         var onConnectForwarding: (SSHHost, String?, Bool, Bool) -> Void
+        var onConnectVNC: (SSHHost) -> Void
         var onEdit: (SSHHost) -> Void
         var onCopy: (SSHHost) -> Void
         var onCopyIP: (SSHHost) -> Void
@@ -54,6 +55,10 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
             onConnectForwarding: { [weak self] host, user, local, remote in
                 self?.close()
                 configuration.onConnectForwarding(host, user, local, remote)
+            },
+            onConnectVNC: { [weak self] host in
+                self?.close()
+                configuration.onConnectVNC(host)
             },
             onEdit: { [weak self] host in
                 self?.close()

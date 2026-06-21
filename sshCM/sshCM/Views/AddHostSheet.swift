@@ -23,6 +23,8 @@ struct AddHostSheet: View {
     @State private var tag: HostTag?
     @State private var showTagPicker: Bool = false
     @State private var hasBypass: Bool = false
+    @State private var hostOS: SSHHost.OS?
+    @State private var vncPortText: String
     /// Transient messages shown when the user types a character that isn't valid in
     /// an alias (e.g. a space); the character is stripped rather than entered.
     @State private var aliasRejectionNotice: String? = nil
@@ -46,7 +48,8 @@ struct AddHostSheet: View {
         let initialIdentity = editing?.identityFile ?? ""
         let initialProxy = editing?.proxyJump ?? ""
         let initialAlternateUsers = editing?.alternateUsers.joined(separator: ", ") ?? ""
-        let hasAdvanced = !initialIdentity.isEmpty || !initialProxy.isEmpty
+        let initialVNCPort = editing.flatMap { $0.vncPort.map(String.init) } ?? "5900"
+        let hasAdvanced = !initialIdentity.isEmpty || !initialProxy.isEmpty || editing?.os != nil || editing?.vncPort != nil
         let initialForwards =
             (editing?.localForwards.map { ForwardDraft(direction: .local, parsing: $0.spec, note: $0.note) } ?? [])
             + (editing?.remoteForwards.map { ForwardDraft(direction: .remote, parsing: $0.spec, note: $0.note) } ?? [])
@@ -62,6 +65,8 @@ struct AddHostSheet: View {
         _forwards = State(initialValue: initialForwards)
         _showForwarding = State(initialValue: !initialForwards.isEmpty)
         _showAdvanced = State(initialValue: hasAdvanced)
+        _hostOS = State(initialValue: editing?.os)
+        _vncPortText = State(initialValue: initialVNCPort)
     }
 
     private var portValue: Int? {
@@ -76,6 +81,18 @@ struct AddHostSheet: View {
         return false
     }
 
+    private var vncPortValue: Int? {
+        let trimmed = vncPortText.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? nil : Int(trimmed)
+    }
+
+    private var vncPortIsValid: Bool {
+        let trimmed = vncPortText.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return true }
+        if let p = Int(trimmed), p > 0, p < 65536 { return true }
+        return false
+    }
+
     private static let aliasRejectionMessage =
         "Spaces and special characters aren't allowed — use letters, digits, - . or _."
     private static let searchAliasRejectionMessage =
@@ -85,7 +102,7 @@ struct AddHostSheet: View {
     /// hostname, using the shared allowed set. The search-aliases field also keeps
     /// commas, which separate the individual aliases.
     private static func sanitizeAlias(_ value: String, allowComma: Bool) -> String {
-        var allowed = HostsFilePublisher.hostnameAllowedCharacters
+        var allowed = HostsFileBlock.hostnameAllowedCharacters
         if allowComma { allowed.insert(charactersIn: ",") }
         return String(String.UnicodeScalarView(
             value.unicodeScalars.filter { allowed.contains($0) }
@@ -133,6 +150,7 @@ struct AddHostSheet: View {
         && !hostName.trimmed.isEmpty
         && !user.trimmed.isEmpty
         && portIsValid
+        && vncPortIsValid
         && forwardsAreValid
     }
 
@@ -156,7 +174,7 @@ struct AddHostSheet: View {
     }
 
     private func isValidHostField(_ value: String) -> Bool {
-        HostsFilePublisher.isPublishableHostname(value.trimmed)
+        HostsFileBlock.isPublishableHostname(value.trimmed)
     }
 
     private var forwardingBinding: Binding<Bool> {
@@ -174,7 +192,7 @@ struct AddHostSheet: View {
     private var aliasError: String? {
         let value = alias.trimmed
         guard !value.isEmpty else { return nil }
-        guard HostsFilePublisher.isPublishableHostname(value) else {
+        guard HostsFileBlock.isPublishableHostname(value) else {
             return "Alias can't contain spaces or special characters (use - . _)."
         }
         let collides = store.file.hosts.contains { host in
@@ -283,6 +301,27 @@ struct AddHostSheet: View {
                                     .font(.callout)
                                     .foregroundStyle(.secondary)
                                 TextField("", text: $proxyJump, prompt: Text("[user@]host[:port] or ssh URI"))
+                            }
+                            HStack {
+                                Text("Host OS")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                Picker("", selection: $hostOS) {
+                                    Text("Unset").tag(SSHHost.OS?.none)
+                                    Text("macOS").tag(SSHHost.OS?.some(.macOS))
+                                    Text("Linux").tag(SSHHost.OS?.some(.linux))
+                                }
+                                .labelsHidden()
+                                .fixedSize()
+                                Text("VNC Port")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                TextField("", text: $vncPortText, prompt: Text("5900"))
+                            }
+                            if !vncPortIsValid {
+                                Text("VNC port must be between 1 and 65535.")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
                             }
                         }
                         .padding(.top, 4)
@@ -494,6 +533,7 @@ struct AddHostSheet: View {
         let completeForwards = forwards.filter { draftIsComplete($0) }
         let parsedLocalForwards = completeForwards.filter { $0.direction == .local }.map(makeForward)
         let parsedRemoteForwards = completeForwards.filter { $0.direction == .remote }.map(makeForward)
+        let parsedVNCPort = vncPortValue.flatMap { $0 == 5900 ? nil : $0 }
 
         let savedHost: SSHHost
         let isNew: Bool
@@ -509,6 +549,8 @@ struct AddHostSheet: View {
             updated.alternateUsers = parsedAlternateUsers
             updated.localForwards = parsedLocalForwards
             updated.remoteForwards = parsedRemoteForwards
+            updated.os = hostOS
+            updated.vncPort = parsedVNCPort
             store.update(updated)
             if let oldAlias = original.aliases.first, oldAlias != primaryAlias {
                 tagsStore.remove(alias: oldAlias)
@@ -530,7 +572,9 @@ struct AddHostSheet: View {
                 proxyJump: proxyJump.trimmed.nilIfEmpty,
                 alternateUsers: parsedAlternateUsers,
                 localForwards: parsedLocalForwards,
-                remoteForwards: parsedRemoteForwards
+                remoteForwards: parsedRemoteForwards,
+                os: hostOS,
+                vncPort: parsedVNCPort
             )
             store.add(host)
             savedHost = host

@@ -99,6 +99,12 @@ struct SSHConfigFile {
             let suffix = f.note.isEmpty ? "" : " \(f.note)"
             lines.append("    \(SSHConfigParser.remoteForwardMarker) \(f.spec)\(suffix)")
         }
+        if let os = h.os {
+            lines.append("    \(SSHConfigParser.osMarker) \(os.rawValue)")
+        }
+        if let port = h.vncPort, port != 5900 {
+            lines.append("    \(SSHConfigParser.vncPortMarker) \(port)")
+        }
         if let v = h.hostName, !v.isEmpty { lines.append(indented("HostName", v)) }
         if let v = h.user, !v.isEmpty { lines.append(indented("User", v)) }
         if let p = h.port { lines.append(indented("Port", String(p))) }

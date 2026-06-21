@@ -29,7 +29,7 @@ enum SSHConfigParser {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             let (keyword, value) = splitKeyValue(trimmed)
 
-            if let kw = keyword, kw.caseInsensitiveCompare("Host") == .orderedSame, !inMatchBlock || true {
+            if let kw = keyword, kw.caseInsensitiveCompare("Host") == .orderedSame {
                 // New Host block always starts fresh.
                 inMatchBlock = false
                 flushHost()
@@ -56,6 +56,16 @@ enum SSHConfigParser {
 
             if currentHost != nil, let forward = parseForwardComment(trimmed, marker: remoteForwardMarker) {
                 currentHost?.remoteForwards.append(forward)
+                continue
+            }
+
+            if currentHost != nil, let os = parseOSComment(trimmed) {
+                currentHost?.os = os
+                continue
+            }
+
+            if currentHost != nil, let port = parseVNCPortComment(trimmed) {
+                currentHost?.vncPort = port
                 continue
             }
 
@@ -103,7 +113,7 @@ enum SSHConfigParser {
                 return (String(key), String(val))
             }
         }
-        let parts = trimmed.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        let parts = trimmed.split(maxSplits: 1, omittingEmptySubsequences: true) { $0.isWhitespace }
         if parts.isEmpty { return (nil, "") }
         let key = String(parts[0])
         let val = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : ""
@@ -118,6 +128,8 @@ enum SSHConfigParser {
     static let alternateUsersMarker = "# sshCM-users:"
     static let localForwardMarker = "# sshCM-localforward:"
     static let remoteForwardMarker = "# sshCM-remoteforward:"
+    static let osMarker = "# sshCM-os:"
+    static let vncPortMarker = "# sshCM-vncport:"
 
     private static func parseSearchAliasesComment(_ trimmed: String) -> [String]? {
         guard trimmed.lowercased().hasPrefix(searchAliasesMarker.lowercased()) else { return nil }
@@ -148,6 +160,18 @@ enum SSHConfigParser {
         let spec = String(parts[0])
         let note = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : ""
         return PortForward(spec: spec, note: note)
+    }
+
+    private static func parseOSComment(_ trimmed: String) -> SSHHost.OS? {
+        guard trimmed.lowercased().hasPrefix(osMarker.lowercased()) else { return nil }
+        let payload = trimmed.dropFirst(osMarker.count).trimmingCharacters(in: .whitespaces)
+        return SSHHost.OS.allCases.first { $0.rawValue.caseInsensitiveCompare(payload) == .orderedSame }
+    }
+
+    private static func parseVNCPortComment(_ trimmed: String) -> Int? {
+        guard trimmed.lowercased().hasPrefix(vncPortMarker.lowercased()) else { return nil }
+        let payload = trimmed.dropFirst(vncPortMarker.count).trimmingCharacters(in: .whitespaces)
+        return Int(payload)
     }
 
     private static func unquote(_ s: String) -> String {
