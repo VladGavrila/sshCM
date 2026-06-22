@@ -34,9 +34,20 @@ final class MainWindowCloseGuard: NSObject, NSWindowDelegate {
     /// `NSWindow.delegate` is weak, so we must retain the guards ourselves.
     private static var guards: [MainWindowCloseGuard] = []
 
+    /// The one main window we've ever installed a guard on. Looked up here
+    /// instead of re-deriving it from `NSApp.windows` at each call site:
+    /// `window.canBecomeMain` can go false once the window is hidden via
+    /// `orderOut` (it's not a *visible* main-capable window anymore), which
+    /// made every "find the main window" lookup miss the hidden window and
+    /// fall through to `MainWindowOpener.open?()` — and `openWindow(id:)`
+    /// creates a brand-new window every time it's called, with no
+    /// deduplication, so each miss left behind one more orphaned window.
+    private static weak var trackedWindow: NSWindow?
+
     private weak var forwardingDelegate: NSWindowDelegate?
 
     static func install(on window: NSWindow) {
+        trackedWindow = window
         guard !(window.delegate is MainWindowCloseGuard) else { return }
         let guardDelegate = MainWindowCloseGuard()
         guardDelegate.forwardingDelegate = window.delegate
@@ -51,12 +62,21 @@ final class MainWindowCloseGuard: NSObject, NSWindowDelegate {
         }
     }
 
+    /// The app's single main window, if one has ever been created — whether
+    /// or not it's currently visible. Falls back to a fresh `NSApp.windows`
+    /// scan only if nothing's been tracked yet (e.g. called before the first
+    /// `ContentView.onAppear`).
+    @MainActor
+    static var mainWindow: NSWindow? {
+        if let trackedWindow { return trackedWindow }
+        return NSApp.windows.first { window in
+            window.canBecomeMain && !(window is CommandPalettePanel)
+        }
+    }
+
     @MainActor
     static func surfaceMainWindow() {
         NSApp.activate(ignoringOtherApps: true)
-        let mainWindow = NSApp.windows.first { window in
-            window.canBecomeMain && !(window is CommandPalettePanel)
-        }
         if let mainWindow {
             if mainWindow.isMiniaturized { mainWindow.deminiaturize(nil) }
             mainWindow.makeKeyAndOrderFront(nil)
@@ -91,6 +111,7 @@ struct sshCMApp: App {
     @State private var tags = TagsStore()
     @State private var reachCache = ReachabilityCache()
     @State private var bypassStore = HostKeyBypassStore()
+    @State private var remoteAppsStore = RemoteAppsStore()
     @State private var updater = UpdateChecker()
     @State private var paletteBridge = PaletteBridge()
     @State private var hotKey = GlobalHotKey()
@@ -121,6 +142,7 @@ struct sshCMApp: App {
                 .environment(bypassStore)
                 .environment(updater)
                 .environment(paletteBridge)
+                .environment(remoteAppsStore)
                 .onAppear {
                     store.load()
                     configurePalette()
@@ -174,6 +196,7 @@ struct sshCMApp: App {
                 .environment(store)
                 .environment(updater)
                 .environment(tags)
+                .environment(remoteAppsStore)
         }
     }
 
@@ -234,15 +257,13 @@ struct sshCMApp: App {
                 guard let target = host.hostName?.trimmingCharacters(in: .whitespaces), !target.isEmpty else { return }
                 let macOSAppPath = UserDefaults.standard.string(forKey: AppStorageKey.defaultMacOSVNCAppPath.rawValue)
                     ?? VNCLauncher.defaultMacOSVNCAppPath
-                let linuxAppPath = UserDefaults.standard.string(forKey: AppStorageKey.defaultLinuxVNCAppPath.rawValue) ?? ""
+                let remoteApp = RemoteAppsStore.resolve(name: host.remoteApp, screenSharingPath: macOSAppPath)
                 do {
                     try VNCLauncher.launch(
                         toHost: target,
                         port: host.vncPort ?? 5900,
-                        os: host.os,
-                        user: host.user,
-                        macOSAppPath: macOSAppPath,
-                        linuxAppPath: linuxAppPath
+                        remoteApp: remoteApp,
+                        user: host.user
                     )
                 } catch {
                     let alert = NSAlert()

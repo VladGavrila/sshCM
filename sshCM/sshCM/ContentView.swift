@@ -25,10 +25,10 @@ struct ContentView: View {
     @Environment(HostKeyBypassStore.self) private var bypassStore
     @Environment(UpdateChecker.self) private var updater
     @Environment(PaletteBridge.self) private var paletteBridge
+    @Environment(RemoteAppsStore.self) private var remoteAppsStore
 
     @AppStorage(AppStorageKey.defaultTerminalAppPath.rawValue) private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
     @AppStorage(AppStorageKey.defaultMacOSVNCAppPath.rawValue) private var macOSVNCAppPath: String = VNCLauncher.defaultMacOSVNCAppPath
-    @AppStorage(AppStorageKey.defaultLinuxVNCAppPath.rawValue) private var linuxVNCAppPath: String = ""
 
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
@@ -518,14 +518,14 @@ struct ContentView: View {
             connectError = "Host has no HostName to connect to via VNC."
             return
         }
+        let remoteApp = remoteAppsStore.selectableApps(screenSharingPath: macOSVNCAppPath)
+            .first { $0.name == host.remoteApp }
         do {
             try VNCLauncher.launch(
                 toHost: target,
                 port: host.vncPort ?? 5900,
-                os: host.os,
-                user: host.user,
-                macOSAppPath: macOSVNCAppPath,
-                linuxAppPath: linuxVNCAppPath
+                remoteApp: remoteApp,
+                user: host.user
             )
         } catch {
             connectError = error.localizedDescription
@@ -728,4 +728,5 @@ struct ContentView: View {
 #Preview {
     ContentView()
         .environment(ConfigStore())
+        .environment(RemoteAppsStore())
 }

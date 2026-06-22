@@ -64,6 +64,11 @@ enum SSHConfigParser {
                 continue
             }
 
+            if currentHost != nil, let name = parseRemoteAppComment(trimmed) {
+                currentHost?.remoteApp = name
+                continue
+            }
+
             if currentHost != nil, let port = parseVNCPortComment(trimmed) {
                 currentHost?.vncPort = port
                 continue
@@ -128,7 +133,9 @@ enum SSHConfigParser {
     static let alternateUsersMarker = "# sshCM-users:"
     static let localForwardMarker = "# sshCM-localforward:"
     static let remoteForwardMarker = "# sshCM-remoteforward:"
+    /// Legacy marker, kept readable only for one-time migration into `remoteApp`.
     static let osMarker = "# sshCM-os:"
+    static let remoteAppMarker = "# sshCM-remoteapp:"
     static let vncPortMarker = "# sshCM-vncport:"
 
     private static func parseSearchAliasesComment(_ trimmed: String) -> [String]? {
@@ -166,6 +173,12 @@ enum SSHConfigParser {
         guard trimmed.lowercased().hasPrefix(osMarker.lowercased()) else { return nil }
         let payload = trimmed.dropFirst(osMarker.count).trimmingCharacters(in: .whitespaces)
         return SSHHost.OS.allCases.first { $0.rawValue.caseInsensitiveCompare(payload) == .orderedSame }
+    }
+
+    private static func parseRemoteAppComment(_ trimmed: String) -> String? {
+        guard trimmed.lowercased().hasPrefix(remoteAppMarker.lowercased()) else { return nil }
+        let payload = trimmed.dropFirst(remoteAppMarker.count).trimmingCharacters(in: .whitespaces)
+        return payload.isEmpty ? nil : payload
     }
 
     private static func parseVNCPortComment(_ trimmed: String) -> Int? {

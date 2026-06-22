@@ -5,6 +5,9 @@ struct AddHostSheet: View {
     @Environment(ConfigStore.self) private var store
     @Environment(TagsStore.self) private var tagsStore
     @Environment(HostKeyBypassStore.self) private var bypassStore
+    @Environment(RemoteAppsStore.self) private var remoteAppsStore
+
+    @AppStorage(AppStorageKey.defaultMacOSVNCAppPath.rawValue) private var macOSVNCAppPath: String = VNCLauncher.defaultMacOSVNCAppPath
 
     let editing: SSHHost?
     var onSaved: ((SSHHost, _ isNew: Bool, _ addedAlternateUsers: [String]) -> Void)?
@@ -23,7 +26,7 @@ struct AddHostSheet: View {
     @State private var tag: HostTag?
     @State private var showTagPicker: Bool = false
     @State private var hasBypass: Bool = false
-    @State private var hostOS: SSHHost.OS?
+    @State private var remoteAppName: String?
     @State private var vncPortText: String
     /// Transient messages shown when the user types a character that isn't valid in
     /// an alias (e.g. a space); the character is stripped rather than entered.
@@ -49,7 +52,7 @@ struct AddHostSheet: View {
         let initialProxy = editing?.proxyJump ?? ""
         let initialAlternateUsers = editing?.alternateUsers.joined(separator: ", ") ?? ""
         let initialVNCPort = editing.flatMap { $0.vncPort.map(String.init) } ?? "5900"
-        let hasAdvanced = !initialIdentity.isEmpty || !initialProxy.isEmpty || editing?.os != nil || editing?.vncPort != nil
+        let hasAdvanced = !initialIdentity.isEmpty || !initialProxy.isEmpty || editing?.remoteApp != nil || editing?.vncPort != nil
         let initialForwards =
             (editing?.localForwards.map { ForwardDraft(direction: .local, parsing: $0.spec, note: $0.note) } ?? [])
             + (editing?.remoteForwards.map { ForwardDraft(direction: .remote, parsing: $0.spec, note: $0.note) } ?? [])
@@ -65,7 +68,7 @@ struct AddHostSheet: View {
         _forwards = State(initialValue: initialForwards)
         _showForwarding = State(initialValue: !initialForwards.isEmpty)
         _showAdvanced = State(initialValue: hasAdvanced)
-        _hostOS = State(initialValue: editing?.os)
+        _remoteAppName = State(initialValue: editing?.remoteApp)
         _vncPortText = State(initialValue: initialVNCPort)
     }
 
@@ -91,6 +94,19 @@ struct AddHostSheet: View {
         if trimmed.isEmpty { return true }
         if let p = Int(trimmed), p > 0, p < 65536 { return true }
         return false
+    }
+
+    /// Every selectable remote app, with the built-in Screen Sharing entry first.
+    private var selectableRemoteApps: [RemoteAccessApp] {
+        remoteAppsStore.selectableApps(screenSharingPath: macOSVNCAppPath)
+    }
+
+    /// Whether the VNC port field applies to the currently selected remote app.
+    /// Hidden for apps that connect by their own identifier (TeamViewer, RustDesk, …)
+    /// and for "Unset".
+    private var showsVNCPort: Bool {
+        guard let remoteAppName else { return false }
+        return selectableRemoteApps.first { $0.name == remoteAppName }?.showsPort ?? false
     }
 
     private static let aliasRejectionMessage =
@@ -303,22 +319,25 @@ struct AddHostSheet: View {
                                 TextField("", text: $proxyJump, prompt: Text("[user@]host[:port] or ssh URI"))
                             }
                             HStack {
-                                Text("Host OS")
+                                Text("Remote app")
                                     .font(.callout)
                                     .foregroundStyle(.secondary)
-                                Picker("", selection: $hostOS) {
-                                    Text("Unset").tag(SSHHost.OS?.none)
-                                    Text("macOS").tag(SSHHost.OS?.some(.macOS))
-                                    Text("Linux").tag(SSHHost.OS?.some(.linux))
+                                Picker("", selection: $remoteAppName) {
+                                    Text("Unset").tag(String?.none)
+                                    ForEach(selectableRemoteApps) { app in
+                                        Text(app.name).tag(String?.some(app.name))
+                                    }
                                 }
                                 .labelsHidden()
                                 .fixedSize()
-                                Text("VNC Port")
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                                TextField("", text: $vncPortText, prompt: Text("5900"))
+                                if showsVNCPort {
+                                    Text("VNC Port")
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                    TextField("", text: $vncPortText, prompt: Text("5900"))
+                                }
                             }
-                            if !vncPortIsValid {
+                            if showsVNCPort, !vncPortIsValid {
                                 Text("VNC port must be between 1 and 65535.")
                                     .font(.caption)
                                     .foregroundStyle(.red)
@@ -533,7 +552,7 @@ struct AddHostSheet: View {
         let completeForwards = forwards.filter { draftIsComplete($0) }
         let parsedLocalForwards = completeForwards.filter { $0.direction == .local }.map(makeForward)
         let parsedRemoteForwards = completeForwards.filter { $0.direction == .remote }.map(makeForward)
-        let parsedVNCPort = vncPortValue.flatMap { $0 == 5900 ? nil : $0 }
+        let parsedVNCPort = showsVNCPort ? vncPortValue.flatMap { $0 == 5900 ? nil : $0 } : nil
 
         let savedHost: SSHHost
         let isNew: Bool
@@ -549,7 +568,7 @@ struct AddHostSheet: View {
             updated.alternateUsers = parsedAlternateUsers
             updated.localForwards = parsedLocalForwards
             updated.remoteForwards = parsedRemoteForwards
-            updated.os = hostOS
+            updated.remoteApp = remoteAppName
             updated.vncPort = parsedVNCPort
             store.update(updated)
             if let oldAlias = original.aliases.first, oldAlias != primaryAlias {
@@ -573,7 +592,7 @@ struct AddHostSheet: View {
                 alternateUsers: parsedAlternateUsers,
                 localForwards: parsedLocalForwards,
                 remoteForwards: parsedRemoteForwards,
-                os: hostOS,
+                remoteApp: remoteAppName,
                 vncPort: parsedVNCPort
             )
             store.add(host)

@@ -106,7 +106,7 @@ struct HostCardView: View {
                 .buttonStyle(.borderless)
                 .help("Edit host")
 
-                if host.os != nil {
+                if host.remoteApp != nil {
                     Button(action: onConnectVNC) {
                         Image(systemName: "display")
                     }
@@ -136,32 +136,48 @@ struct HostCardView: View {
         let altUsers = host.alternateUsers.filter { !$0.isEmpty }
         if altUsers.isEmpty && !host.hasForwards {
             Button(action: onConnect) {
-                Image(systemName: "terminal")
+                Image(systemName: "apple.terminal")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 14, height: 14)
+                    .foregroundStyle(.primary)
             }
             .buttonStyle(.borderless)
             .help("Connect via SSH")
         } else {
-            Menu {
-                let primary = host.user?.trimmingCharacters(in: .whitespaces) ?? ""
-                Button(primary.isEmpty ? "Connect (default user)" : "Connect as \(primary)") {
-                    onConnect()
-                }
-                forwardMenuItems
-                if !altUsers.isEmpty {
-                    Divider()
-                    ForEach(altUsers, id: \.self) { user in
-                        Button("Connect as \(user)") { onConnectAs(user) }
+            // `Menu`'s built-in label rendering ignores SwiftUI-level sizing
+            // modifiers on its icon (AppKit re-snapshots it for the menu
+            // bezel at the symbol's own default size), so the visible icon
+            // here is a separate, identically-styled overlay; the actual
+            // `Menu` underneath is rendered invisible and only provides the
+            // click target.
+            ZStack {
+                Menu {
+                    let primary = host.user?.trimmingCharacters(in: .whitespaces) ?? ""
+                    Button(primary.isEmpty ? "Connect (default user)" : "Connect as \(primary)") {
+                        onConnect()
                     }
+                    forwardMenuItems
+                    if !altUsers.isEmpty {
+                        Divider()
+                        ForEach(altUsers, id: \.self) { user in
+                            Button("Connect as \(user)") { onConnectAs(user) }
+                        }
+                    }
+                } label: {
+                    Color.clear
                 }
-            } label: {
-                Image(systemName: "terminal")
-            } primaryAction: {
-                onConnect()
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 14, height: 14)
+
+                Image(systemName: "apple.terminal.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 14, height: 14)
+                    .allowsHitTesting(false)
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.visible)
-            .fixedSize()
-            .help("Connect via SSH — hold for forwards / users")
+            .help("Connect via SSH - options")
         }
     }
 

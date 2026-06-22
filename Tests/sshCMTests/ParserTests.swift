@@ -160,7 +160,18 @@ struct MetadataMarkerTests {
         #expect(SSHConfigParser.localForwardMarker == "# sshCM-localforward:")
         #expect(SSHConfigParser.remoteForwardMarker == "# sshCM-remoteforward:")
         #expect(SSHConfigParser.osMarker == "# sshCM-os:")
+        #expect(SSHConfigParser.remoteAppMarker == "# sshCM-remoteapp:")
         #expect(SSHConfigParser.vncPortMarker == "# sshCM-vncport:")
+    }
+
+    @Test func remoteAppMarkerParsed() {
+        let text = "Host myserver\n    # sshCM-remoteapp: RustDesk\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].remoteApp == "RustDesk")
+    }
+
+    @Test func missingRemoteAppMarkerLeavesRemoteAppUnset() {
+        let text = "Host myserver\n    HostName example.com\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].remoteApp == nil)
     }
 
     @Test func macOSMarkerParsed() {
@@ -283,12 +294,49 @@ struct RoundTripTests {
         #expect(reparsed.hosts[0].remoteForwards == file.hosts[0].remoteForwards)
     }
 
-    @Test func osAndVNCPortRoundTrip() {
-        let text = "Host myserver\n    # sshCM-os: linux\n    # sshCM-vncport: 5901\n"
+    @Test func vncPortRoundTrip() {
+        let text = "Host myserver\n    # sshCM-vncport: 5901\n"
         let file = SSHConfigParser.parse(text)
         let reparsed = SSHConfigParser.parse(file.serialize())
-        #expect(reparsed.hosts[0].os == .linux)
         #expect(reparsed.hosts[0].vncPort == 5901)
+    }
+
+    @Test func remoteAppRoundTrip() {
+        let text = "Host myserver\n    # sshCM-remoteapp: RustDesk\n"
+        let file = SSHConfigParser.parse(text)
+        #expect(SSHConfigParser.parse(file.serialize()).hosts[0].remoteApp == "RustDesk")
+    }
+
+    // The legacy `# sshCM-os:` marker is only ever read for one-time migration —
+    // it must never be written back out, even though it's still parsed.
+    @Test func legacyOSMarkerIsNotReSerialized() {
+        let text = "Host myserver\n    # sshCM-os: linux\n"
+        let file = SSHConfigParser.parse(text)
+        #expect(file.hosts[0].os == .linux)
+        #expect(!file.serialize().contains(SSHConfigParser.osMarker))
+    }
+
+    @Test func migrateLegacyOSMarkersMapsMacOSToScreenSharing() {
+        var file = SSHConfigParser.parse("Host myserver\n    # sshCM-os: macOS\n")
+        file.migrateLegacyOSMarkers(linuxAppPathConfigured: false)
+        #expect(file.hosts[0].remoteApp == RemoteAccessApp.screenSharingName)
+        #expect(file.hosts[0].os == nil)
+    }
+
+    @Test func migrateLegacyOSMarkersMapsLinuxOnlyWhenAppConfigured() {
+        var withApp = SSHConfigParser.parse("Host myserver\n    # sshCM-os: linux\n")
+        withApp.migrateLegacyOSMarkers(linuxAppPathConfigured: true)
+        #expect(withApp.hosts[0].remoteApp == RemoteAccessApp.legacyLinuxAppName)
+
+        var withoutApp = SSHConfigParser.parse("Host myserver\n    # sshCM-os: linux\n")
+        withoutApp.migrateLegacyOSMarkers(linuxAppPathConfigured: false)
+        #expect(withoutApp.hosts[0].remoteApp == nil)
+    }
+
+    @Test func migrateLegacyOSMarkersDoesNotOverrideExistingRemoteApp() {
+        var file = SSHConfigParser.parse("Host myserver\n    # sshCM-os: macOS\n    # sshCM-remoteapp: TigerVNC\n")
+        file.migrateLegacyOSMarkers(linuxAppPathConfigured: false)
+        #expect(file.hosts[0].remoteApp == "TigerVNC")
     }
 
     // The default VNC port (5900) is never written back out, matching the

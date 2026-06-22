@@ -119,16 +119,7 @@ final class MenuBarStatusItem: NSObject {
     }
 
     @objc private func showMainWindow(_ sender: Any?) {
-        NSApp.activate(ignoringOtherApps: true)
-        let existing = NSApp.windows.first { window in
-            window.canBecomeMain && !(window is CommandPalettePanel)
-        }
-        if let existing {
-            if existing.isMiniaturized { existing.deminiaturize(nil) }
-            existing.makeKeyAndOrderFront(nil)
-            return
-        }
-        MainWindowOpener.open?()
+        MainWindowCloseGuard.surfaceMainWindow()
     }
 
     @objc private func openSettings(_ sender: Any?) {
@@ -139,16 +130,7 @@ final class MenuBarStatusItem: NSObject {
     @objc private func checkForUpdates(_ sender: Any?) {
         // Update results (sheet, alerts) are presented by ContentView, so ensure
         // a main window is visible before kicking off the check.
-        NSApp.activate(ignoringOtherApps: true)
-        let existing = NSApp.windows.first { window in
-            window.canBecomeMain && !(window is CommandPalettePanel)
-        }
-        if let existing {
-            if existing.isMiniaturized { existing.deminiaturize(nil) }
-            existing.makeKeyAndOrderFront(nil)
-        } else {
-            MainWindowOpener.open?()
-        }
+        MainWindowCloseGuard.surfaceMainWindow()
         UpdateCheckTrigger.trigger?()
     }
 }

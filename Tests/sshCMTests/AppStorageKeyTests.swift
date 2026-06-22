@@ -13,7 +13,7 @@ struct AppStorageKeyTests {
     @Test func keyCountMatchesExpected() {
         // Guard against accidentally adding a duplicate or removing a key.
         // Update this number whenever a key is intentionally added or removed.
-        #expect(AppStorageKey.allCases.count == 17)
+        #expect(AppStorageKey.allCases.count == 18)
     }
 
     @Test func knownKeysHaveCorrectRawValues() {
@@ -34,5 +34,6 @@ struct AppStorageKeyTests {
         #expect(AppStorageKey.defaultPublicKeyPath.rawValue == "defaultPublicKeyPath")
         #expect(AppStorageKey.defaultMacOSVNCAppPath.rawValue == "defaultMacOSVNCAppPath")
         #expect(AppStorageKey.defaultLinuxVNCAppPath.rawValue == "defaultLinuxVNCAppPath")
+        #expect(AppStorageKey.remoteAccessApps.rawValue == "remoteAccessApps")
     }
 }

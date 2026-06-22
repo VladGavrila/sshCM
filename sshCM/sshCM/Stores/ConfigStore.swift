@@ -30,6 +30,8 @@ final class ConfigStore {
             let text = String(data: data, encoding: .utf8) ?? ""
             var parsed = SSHConfigParser.parse(text)
             parsed.preserveIDs(from: file)
+            let linuxAppConfigured = !(UserDefaults.standard.string(forKey: AppStorageKey.defaultLinuxVNCAppPath.rawValue) ?? "").isEmpty
+            parsed.migrateLegacyOSMarkers(linuxAppPathConfigured: linuxAppConfigured)
             file = parsed
         } catch {
             loadError = error.localizedDescription

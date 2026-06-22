@@ -19,7 +19,8 @@ let package = Package(
                 "PortForward.swift",
                 "HostListFilter.swift",
                 "HostSearchScorer.swift",
-                "HostsFileBlock.swift"
+                "HostsFileBlock.swift",
+                "RemoteAccessApp.swift"
             ]
         ),
         .target(

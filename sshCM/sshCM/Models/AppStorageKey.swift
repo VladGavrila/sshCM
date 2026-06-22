@@ -37,5 +37,9 @@ enum AppStorageKey: String, CaseIterable {
 
     // MARK: - VNCLauncher
     case defaultMacOSVNCAppPath
+    /// Legacy. Read only for one-time migration into `RemoteAppsStore`.
     case defaultLinuxVNCAppPath
+
+    // MARK: - RemoteAppsStore
+    case remoteAccessApps
 }

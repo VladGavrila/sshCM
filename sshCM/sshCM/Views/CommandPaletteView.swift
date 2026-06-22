@@ -156,7 +156,7 @@ struct CommandPaletteView: View {
                 onConnectForwarding(host, nil, false, true)
                 return .handled
             }
-            if mods.contains(.command), let host = selectedHost, host.os != nil {
+            if mods.contains(.command), let host = selectedHost, host.remoteApp != nil {
                 onConnectVNC(host)
                 return .handled
             }
@@ -354,7 +354,7 @@ struct CommandPaletteView: View {
     }
 
     private var selectedHostHasVNC: Bool {
-        selectedHost.map { $0.os != nil } ?? false
+        selectedHost.map { $0.remoteApp != nil } ?? false
     }
 
     private func move(by delta: Int) {

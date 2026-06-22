@@ -2,6 +2,19 @@
 
 All notable changes to **sshCM** ("SSH Config Manager") are documented here, newest first. Each entry corresponds to a [GitHub release](https://github.com/VladGavrila/sshCM/releases).
 
+## [1.15.0] — 2026-06-21
+
+### Added
+- **Remote apps replace the fixed "Host OS" classification for Connect via VNC.** Settings → Apps now has a "Remote Apps" list where you can add any remote-access app (TeamViewer, RustDesk, TigerVNC, RealVNC, …) alongside the always-available, built-in Screen Sharing entry, marked "Default" and not reconfigurable there — add a separate entry instead if you want a different app in that role. The per-host "Host OS" picker in Add/Edit Host's Advanced section is now a "Remote app" picker listing Screen Sharing plus everything configured in Settings. The selection is stored as a `# sshCM-remoteapp:` comment.
+
+### Improved
+- **Settings is now organized into tabs** — General, Apps, Tags, Updates, Advanced — instead of one long scrolling form.
+- **Settings now stays on top and the main window is non-interactive while it's open**, similar to a native preferences window. Clicking the main window while Settings is up no longer does anything; closing Settings restores normal interaction. An update check triggered from the Updates tab still surfaces its result above Settings instead of behind it.
+- **The "connect as/with" menu button now opens its dropdown directly on click**, with the drop-down chevron removed, instead of requiring a separate primary-click-vs-menu distinction.
+
+### Fixed
+- **Triggering "Check for Updates…" from the menu-bar status item could leave behind extra, empty main windows.** Several places independently re-derived "the main window" by scanning for a visible, main-capable window; a hidden main window could be missed by that scan and fall through to creating a brand-new one (`openWindow` doesn't deduplicate). The main window is now tracked directly instead of re-scanned.
+
 ## [1.14.0] — 2026-06-20
 
 ### Added
@@ -194,6 +207,7 @@ All notable changes to **sshCM** ("SSH Config Manager") are documented here, new
   - **Configure terminal** in Settings (defaults to Terminal.app).
 - Config handling preserves structure: atomic `0600` writes, `~/.ssh` created `0700` if missing, and comments, blank lines, global directives, `Include`/`Match` blocks, and unknown keys round-trip verbatim.
 
+[1.15.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.15.0
 [1.14.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.14.0
 [1.13.1]: https://github.com/VladGavrila/sshCM/releases/tag/v1.13.1
 [1.13.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.13.0

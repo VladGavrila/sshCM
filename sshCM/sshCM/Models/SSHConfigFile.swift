@@ -61,6 +61,30 @@ struct SSHConfigFile {
         }
     }
 
+    /// One-time migration from the old fixed macOS/Linux `os` classification to
+    /// the new named `remoteApp` list. Runs on every load but only ever touches
+    /// hosts that still carry a legacy `os` marker and no `remoteApp` yet, so it's
+    /// a no-op once a host has been resaved. `linuxAppPathConfigured` tells us
+    /// whether the user had a Linux VNC app path set, which `RemoteAppsStore`
+    /// seeds as an entry named `RemoteAccessApp.legacyLinuxAppName` — without that
+    /// path there's no app for a `.linux` host to resolve to, so it's left unset
+    /// rather than pointing at a name nothing backs.
+    mutating func migrateLegacyOSMarkers(linuxAppPathConfigured: Bool) {
+        blocks = blocks.map { block in
+            guard case .host(var h) = block, h.remoteApp == nil, let os = h.os else { return block }
+            switch os {
+            case .macOS:
+                h.remoteApp = RemoteAccessApp.screenSharingName
+            case .linux:
+                if linuxAppPathConfigured {
+                    h.remoteApp = RemoteAccessApp.legacyLinuxAppName
+                }
+            }
+            h.os = nil
+            return .host(h)
+        }
+    }
+
     private var endsWithBlankLine: Bool {
         guard let last = blocks.last else { return true }
         if case .raw(let s) = last, s.isEmpty { return true }
@@ -99,8 +123,8 @@ struct SSHConfigFile {
             let suffix = f.note.isEmpty ? "" : " \(f.note)"
             lines.append("    \(SSHConfigParser.remoteForwardMarker) \(f.spec)\(suffix)")
         }
-        if let os = h.os {
-            lines.append("    \(SSHConfigParser.osMarker) \(os.rawValue)")
+        if let remoteApp = h.remoteApp, !remoteApp.isEmpty {
+            lines.append("    \(SSHConfigParser.remoteAppMarker) \(remoteApp)")
         }
         if let port = h.vncPort, port != 5900 {
             lines.append("    \(SSHConfigParser.vncPortMarker) \(port)")

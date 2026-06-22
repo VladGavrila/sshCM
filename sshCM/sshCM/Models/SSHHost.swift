@@ -14,10 +14,16 @@ struct SSHHost: Identifiable, Hashable {
     var identityFile: String?
     var proxyJump: String?
     var alternateUsers: [String]
-    /// Best-effort/manual OS classification, used to pick a VNC client. `nil`
-    /// means unset — never inferred from absence of a detection match.
+    /// Legacy best-effort/manual OS classification. Only read from old config
+    /// files for one-time migration into `remoteApp` — see
+    /// `SSHConfigFile.migrateLegacyOSMarkers`; never written back out.
     var os: OS?
-    /// VNC port override. `nil` means the default (5900).
+    /// Name of the selected entry from the user's remote-app list (or
+    /// `RemoteAccessApp.screenSharingName`), used to pick a viewer for the
+    /// "Connect via VNC"/remote-access action. `nil` means unset.
+    var remoteApp: String?
+    /// VNC port override. `nil` means the default (5900). Only meaningful
+    /// when the selected `remoteApp` has `showsPort == true`.
     var vncPort: Int?
     /// On-demand `-L` forwards (display label + spec). Stored as sshCM metadata
     /// comments, not native `LocalForward` directives, so plain connects don't
@@ -40,6 +46,7 @@ struct SSHHost: Identifiable, Hashable {
         localForwards: [PortForward] = [],
         remoteForwards: [PortForward] = [],
         os: OS? = nil,
+        remoteApp: String? = nil,
         vncPort: Int? = nil,
         rawLines: [String] = []
     ) {
@@ -55,6 +62,7 @@ struct SSHHost: Identifiable, Hashable {
         self.localForwards = localForwards
         self.remoteForwards = remoteForwards
         self.os = os
+        self.remoteApp = remoteApp
         self.vncPort = vncPort
         self.rawLines = rawLines
     }
