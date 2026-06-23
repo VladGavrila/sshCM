@@ -52,15 +52,39 @@ enum VNCLauncher {
                     NSLog("VNCLauncher failed: \(error.localizedDescription)")
                 }
             }
+        } else if let url = customSchemeURL(forAppAt: remoteApp.appPath, host: trimmedHost) {
+            // TeamViewer and RustDesk don't pick up the host from a bare CLI argument
+            // (launching the app that way opens it with nothing pre-filled) — they need
+            // their own URL scheme invoked instead, with the host embedded in it.
+            // Identified by bundle ID rather than `remoteApp.name` since the user can
+            // rename the configured entry to anything.
+            NSWorkspace.shared.open(url)
         } else {
-            // Apps that connect by their own identifier rather than a port (TeamViewer,
-            // RustDesk, …) get just the bare IP/hostname as an argument.
+            // Apps that connect by their own identifier rather than a port get just the
+            // bare IP/hostname as an argument.
             configuration.arguments = [trimmedHost]
             NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, error in
                 if let error {
                     NSLog("VNCLauncher failed: \(error.localizedDescription)")
                 }
             }
+        }
+    }
+
+    /// Bundle IDs of apps that connect via a custom URL scheme (with the host embedded)
+    /// rather than via a CLI argument, and the URL template to use for each.
+    private static func customSchemeURL(forAppAt appPath: String, host: String) -> URL? {
+        guard let bundleID = Bundle(path: appPath)?.bundleIdentifier,
+              let encodedHost = host.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            return nil
+        }
+        switch bundleID {
+        case "com.teamviewer.TeamViewer":
+            return URL(string: "teamviewer10://control?device=\(encodedHost)")
+        case "com.carriez.rustdesk":
+            return URL(string: "rustdesk://\(encodedHost)")
+        default:
+            return nil
         }
     }
 

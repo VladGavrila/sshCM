@@ -2,6 +2,11 @@
 
 All notable changes to **sshCM** ("SSH Config Manager") are documented here, newest first. Each entry corresponds to a [GitHub release](https://github.com/VladGavrila/sshCM/releases).
 
+## [1.15.1] — 2026-06-22
+
+### Fixed
+- **Connect via VNC didn't pre-populate the host for TeamViewer or RustDesk.** Both register their own URL scheme rather than accepting a CLI argument, so launching them with the bare IP opened the app with nothing filled in.
+
 ## [1.15.0] — 2026-06-21
 
 ### Added
@@ -207,6 +212,7 @@ All notable changes to **sshCM** ("SSH Config Manager") are documented here, new
   - **Configure terminal** in Settings (defaults to Terminal.app).
 - Config handling preserves structure: atomic `0600` writes, `~/.ssh` created `0700` if missing, and comments, blank lines, global directives, `Include`/`Match` blocks, and unknown keys round-trip verbatim.
 
+[1.15.1]: https://github.com/VladGavrila/sshCM/releases/tag/v1.15.1
 [1.15.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.15.0
 [1.14.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.14.0
 [1.13.1]: https://github.com/VladGavrila/sshCM/releases/tag/v1.13.1
