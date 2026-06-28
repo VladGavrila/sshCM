@@ -2,6 +2,11 @@
 
 All notable changes to **sshCM** ("SSH Config Manager") are documented here, newest first. Each entry corresponds to a [GitHub release](https://github.com/VladGavrila/sshCM/releases).
 
+## [1.16.0] — 2026-06-28
+
+### Added
+- **Connect via SMB.** A new "Allow SMB" checkbox in Add/Edit Host's Advanced section marks a host as exposing SMB file sharing. When set, a network-drive icon appears before the VNC/terminal buttons on cards and rows, and choosing it opens the host's `HostName` as an `smb://` URL. The flag is stored as a `# sshCM-smb:` comment inside the `Host` block, following the same private-metadata convention as `# sshCM-aliases:` / `# sshCM-vncport:`, so it round-trips untouched and never affects plain `ssh`. In the Command Palette, `⌘B` connects via SMB for an SMB-enabled host (shown as a hint only when applicable).
+
 ## [1.15.1] — 2026-06-22
 
 ### Fixed
@@ -212,6 +217,7 @@ All notable changes to **sshCM** ("SSH Config Manager") are documented here, new
   - **Configure terminal** in Settings (defaults to Terminal.app).
 - Config handling preserves structure: atomic `0600` writes, `~/.ssh` created `0700` if missing, and comments, blank lines, global directives, `Include`/`Match` blocks, and unknown keys round-trip verbatim.
 
+[1.16.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.16.0
 [1.15.1]: https://github.com/VladGavrila/sshCM/releases/tag/v1.15.1
 [1.15.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.15.0
 [1.14.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.14.0

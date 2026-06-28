@@ -74,6 +74,11 @@ enum SSHConfigParser {
                 continue
             }
 
+            if currentHost != nil, parseSMBComment(trimmed) {
+                currentHost?.allowsSMB = true
+                continue
+            }
+
             if let kw = keyword, kw.caseInsensitiveCompare("Match") == .orderedSame {
                 flushHost()
                 inMatchBlock = true
@@ -137,6 +142,7 @@ enum SSHConfigParser {
     static let osMarker = "# sshCM-os:"
     static let remoteAppMarker = "# sshCM-remoteapp:"
     static let vncPortMarker = "# sshCM-vncport:"
+    static let smbMarker = "# sshCM-smb:"
 
     private static func parseSearchAliasesComment(_ trimmed: String) -> [String]? {
         guard trimmed.lowercased().hasPrefix(searchAliasesMarker.lowercased()) else { return nil }
@@ -185,6 +191,13 @@ enum SSHConfigParser {
         guard trimmed.lowercased().hasPrefix(vncPortMarker.lowercased()) else { return nil }
         let payload = trimmed.dropFirst(vncPortMarker.count).trimmingCharacters(in: .whitespaces)
         return Int(payload)
+    }
+
+    /// SMB is a simple on/off flag, so any `# sshCM-smb:` line (regardless of
+    /// payload) marks the host as SMB-enabled. `serializeHost` always writes
+    /// `yes`, but we don't require a specific value when reading back.
+    private static func parseSMBComment(_ trimmed: String) -> Bool {
+        trimmed.lowercased().hasPrefix(smbMarker.lowercased())
     }
 
     private static func unquote(_ s: String) -> String {

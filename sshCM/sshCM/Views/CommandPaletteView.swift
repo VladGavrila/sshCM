@@ -6,6 +6,7 @@ struct CommandPaletteView: View {
     /// Connect applying the host's stored forwards: `(host, user, includeLocal, includeRemote)`.
     let onConnectForwarding: (SSHHost, String?, Bool, Bool) -> Void
     let onConnectVNC: (SSHHost) -> Void
+    let onConnectSMB: (SSHHost) -> Void
     let onEdit: (SSHHost) -> Void
     let onCopy: (SSHHost) -> Void
     let onCopyIP: (SSHHost) -> Void
@@ -97,6 +98,9 @@ struct CommandPaletteView: View {
                     if selectedHostHasVNC {
                         hint("⌘↵", "VNC")
                     }
+                    if selectedHostHasSMB {
+                        hint("⌘B", "SMB")
+                    }
                     hint("⌘E", "Edit")
                     hint("⌘I", "Copy IP")
                     hint("⌘R", "Refresh")
@@ -166,6 +170,11 @@ struct CommandPaletteView: View {
         .onKeyPress(keys: ["e"]) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             if let host = selectedHost { onEdit(host) }
+            return .handled
+        }
+        .onKeyPress(keys: ["b"]) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            if let host = selectedHost, host.allowsSMB { onConnectSMB(host) }
             return .handled
         }
         .onKeyPress(keys: ["c"]) { press in
@@ -355,6 +364,10 @@ struct CommandPaletteView: View {
 
     private var selectedHostHasVNC: Bool {
         selectedHost.map { $0.remoteApp != nil } ?? false
+    }
+
+    private var selectedHostHasSMB: Bool {
+        selectedHost.map { $0.allowsSMB } ?? false
     }
 
     private func move(by delta: Int) {

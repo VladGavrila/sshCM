@@ -532,6 +532,18 @@ struct ContentView: View {
         }
     }
 
+    private func connectSMB(to host: SSHHost) {
+        guard let target = host.hostName?.trimmingCharacters(in: .whitespaces), !target.isEmpty else {
+            connectError = "Host has no HostName to connect to via SMB."
+            return
+        }
+        do {
+            try SMBConnector.connect(toHost: target)
+        } catch {
+            connectError = error.localizedDescription
+        }
+    }
+
     /// Connects normally after the user removed a changed host key.
     private func connectAfterRemoval(_ warning: HostConnector.KeyWarning) {
         do {
@@ -642,7 +654,8 @@ struct ContentView: View {
                             onConnectForwarding: { local, remote in
                                 connectForwarding(to: host, includeLocal: local, includeRemote: remote)
                             },
-                            onConnectVNC: { connectVNC(to: host) }
+                            onConnectVNC: { connectVNC(to: host) },
+                            onConnectSMB: { connectSMB(to: host) }
                         )
                     }
                 }
@@ -664,7 +677,8 @@ struct ContentView: View {
                     onConnectForwarding: { local, remote in
                         connectForwarding(to: host, includeLocal: local, includeRemote: remote)
                     },
-                    onConnectVNC: { connectVNC(to: host) }
+                    onConnectVNC: { connectVNC(to: host) },
+                    onConnectSMB: { connectSMB(to: host) }
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.visible)

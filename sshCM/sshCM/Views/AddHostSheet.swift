@@ -28,6 +28,7 @@ struct AddHostSheet: View {
     @State private var hasBypass: Bool = false
     @State private var remoteAppName: String?
     @State private var vncPortText: String
+    @State private var allowsSMB: Bool
     /// Transient messages shown when the user types a character that isn't valid in
     /// an alias (e.g. a space); the character is stripped rather than entered.
     @State private var aliasRejectionNotice: String? = nil
@@ -52,7 +53,7 @@ struct AddHostSheet: View {
         let initialProxy = editing?.proxyJump ?? ""
         let initialAlternateUsers = editing?.alternateUsers.joined(separator: ", ") ?? ""
         let initialVNCPort = editing.flatMap { $0.vncPort.map(String.init) } ?? "5900"
-        let hasAdvanced = !initialIdentity.isEmpty || !initialProxy.isEmpty || editing?.remoteApp != nil || editing?.vncPort != nil
+        let hasAdvanced = !initialIdentity.isEmpty || !initialProxy.isEmpty || editing?.remoteApp != nil || editing?.vncPort != nil || (editing?.allowsSMB ?? false)
         let initialForwards =
             (editing?.localForwards.map { ForwardDraft(direction: .local, parsing: $0.spec, note: $0.note) } ?? [])
             + (editing?.remoteForwards.map { ForwardDraft(direction: .remote, parsing: $0.spec, note: $0.note) } ?? [])
@@ -70,6 +71,7 @@ struct AddHostSheet: View {
         _showAdvanced = State(initialValue: hasAdvanced)
         _remoteAppName = State(initialValue: editing?.remoteApp)
         _vncPortText = State(initialValue: initialVNCPort)
+        _allowsSMB = State(initialValue: editing?.allowsSMB ?? false)
     }
 
     private var portValue: Int? {
@@ -342,6 +344,12 @@ struct AddHostSheet: View {
                                     .font(.caption)
                                     .foregroundStyle(.red)
                             }
+                            Toggle(isOn: $allowsSMB) {
+                                Text("Allow SMB")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .toggleStyle(.checkbox)
                         }
                         .padding(.top, 4)
                     }
@@ -570,6 +578,7 @@ struct AddHostSheet: View {
             updated.remoteForwards = parsedRemoteForwards
             updated.remoteApp = remoteAppName
             updated.vncPort = parsedVNCPort
+            updated.allowsSMB = allowsSMB
             store.update(updated)
             if let oldAlias = original.aliases.first, oldAlias != primaryAlias {
                 tagsStore.remove(alias: oldAlias)
@@ -593,7 +602,8 @@ struct AddHostSheet: View {
                 localForwards: parsedLocalForwards,
                 remoteForwards: parsedRemoteForwards,
                 remoteApp: remoteAppName,
-                vncPort: parsedVNCPort
+                vncPort: parsedVNCPort,
+                allowsSMB: allowsSMB
             )
             store.add(host)
             savedHost = host

@@ -10,6 +10,7 @@ struct HostRowView: View {
     /// Connect while applying the host's stored port forwards: `(includeLocal, includeRemote)`.
     let onConnectForwarding: (Bool, Bool) -> Void
     let onConnectVNC: () -> Void
+    let onConnectSMB: () -> Void
 
     @Environment(FavoritesStore.self) private var favorites
     @Environment(TagsStore.self) private var tagsStore
@@ -136,6 +137,14 @@ struct HostRowView: View {
                     }
                     .buttonStyle(.borderless)
                     .help("Connect via VNC")
+                }
+
+                if host.allowsSMB {
+                    Button(action: onConnectSMB) {
+                        Image(systemName: "externaldrive.connected.to.line.below")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Connect via SMB")
                 }
 
                 connectButton

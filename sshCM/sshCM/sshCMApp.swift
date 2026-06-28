@@ -272,6 +272,17 @@ struct sshCMApp: App {
                     alert.runModal()
                 }
             },
+            onConnectSMB: { host in
+                guard let target = host.hostName?.trimmingCharacters(in: .whitespaces), !target.isEmpty else { return }
+                do {
+                    try SMBConnector.connect(toHost: target)
+                } catch {
+                    let alert = NSAlert()
+                    alert.messageText = "Could not open SMB share"
+                    alert.informativeText = error.localizedDescription
+                    alert.runModal()
+                }
+            },
             onEdit: { host in
                 Self.surfaceMainWindow()
                 bridge.pendingEdit = host

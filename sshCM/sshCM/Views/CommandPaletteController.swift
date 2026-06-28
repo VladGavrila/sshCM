@@ -19,6 +19,7 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         var onConnect: (SSHHost, String?) -> Void
         var onConnectForwarding: (SSHHost, String?, Bool, Bool) -> Void
         var onConnectVNC: (SSHHost) -> Void
+        var onConnectSMB: (SSHHost) -> Void
         var onEdit: (SSHHost) -> Void
         var onCopy: (SSHHost) -> Void
         var onCopyIP: (SSHHost) -> Void
@@ -59,6 +60,10 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
             onConnectVNC: { [weak self] host in
                 self?.close()
                 configuration.onConnectVNC(host)
+            },
+            onConnectSMB: { [weak self] host in
+                self?.close()
+                configuration.onConnectSMB(host)
             },
             onEdit: { [weak self] host in
                 self?.close()

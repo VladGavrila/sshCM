@@ -162,6 +162,7 @@ struct MetadataMarkerTests {
         #expect(SSHConfigParser.osMarker == "# sshCM-os:")
         #expect(SSHConfigParser.remoteAppMarker == "# sshCM-remoteapp:")
         #expect(SSHConfigParser.vncPortMarker == "# sshCM-vncport:")
+        #expect(SSHConfigParser.smbMarker == "# sshCM-smb:")
     }
 
     @Test func remoteAppMarkerParsed() {
@@ -202,6 +203,21 @@ struct MetadataMarkerTests {
     @Test func missingVNCPortMarkerLeavesVNCPortUnset() {
         let text = "Host myserver\n    HostName example.com\n"
         #expect(SSHConfigParser.parse(text).hosts[0].vncPort == nil)
+    }
+
+    @Test func smbMarkerParsed() {
+        let text = "Host myserver\n    # sshCM-smb: yes\n    HostName example.com\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].allowsSMB == true)
+    }
+
+    @Test func smbMarkerParsedRegardlessOfPayload() {
+        let text = "Host myserver\n    # sshCM-smb: true\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].allowsSMB == true)
+    }
+
+    @Test func missingSMBMarkerLeavesAllowsSMBFalse() {
+        let text = "Host myserver\n    HostName example.com\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].allowsSMB == false)
     }
 
     @Test func searchAliasesParsed() {
@@ -246,7 +262,7 @@ struct MetadataMarkerTests {
     }
 
     @Test func markersNotLeakedAsRawLines() {
-        let text = "Host myserver\n    # sshCM-aliases: a\n    # sshCM-users: root\n    HostName x.com\n"
+        let text = "Host myserver\n    # sshCM-aliases: a\n    # sshCM-users: root\n    # sshCM-smb: yes\n    HostName x.com\n"
         let host = SSHConfigParser.parse(text).hosts[0]
         #expect(host.rawLines.isEmpty)
     }
@@ -299,6 +315,13 @@ struct RoundTripTests {
         let file = SSHConfigParser.parse(text)
         let reparsed = SSHConfigParser.parse(file.serialize())
         #expect(reparsed.hosts[0].vncPort == 5901)
+    }
+
+    @Test func smbRoundTrip() {
+        let text = "Host myserver\n    # sshCM-smb: yes\n    HostName example.com\n"
+        let file = SSHConfigParser.parse(text)
+        let reparsed = SSHConfigParser.parse(file.serialize())
+        #expect(reparsed.hosts[0].allowsSMB == true)
     }
 
     @Test func remoteAppRoundTrip() {

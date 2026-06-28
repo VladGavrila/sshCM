@@ -4,6 +4,7 @@ struct PalettePanelContent: View {
     let onConnect: (SSHHost, String?) -> Void
     let onConnectForwarding: (SSHHost, String?, Bool, Bool) -> Void
     let onConnectVNC: (SSHHost) -> Void
+    let onConnectSMB: (SSHHost) -> Void
     let onEdit: (SSHHost) -> Void
     let onCopy: (SSHHost) -> Void
     let onCopyIP: (SSHHost) -> Void
@@ -20,6 +21,7 @@ struct PalettePanelContent: View {
             onConnect: onConnect,
             onConnectForwarding: onConnectForwarding,
             onConnectVNC: onConnectVNC,
+            onConnectSMB: onConnectSMB,
             onEdit: onEdit,
             onCopy: onCopy,
             onCopyIP: onCopyIP,

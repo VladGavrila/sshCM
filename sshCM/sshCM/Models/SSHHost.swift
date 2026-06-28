@@ -25,6 +25,10 @@ struct SSHHost: Identifiable, Hashable {
     /// VNC port override. `nil` means the default (5900). Only meaningful
     /// when the selected `remoteApp` has `showsPort == true`.
     var vncPort: Int?
+    /// Whether this host exposes SMB file sharing. When `true`, a "Connect via
+    /// SMB" action (and grid/list icon + palette entry) is offered, opening the
+    /// host's `HostName` as an `smb://` URL in Finder.
+    var allowsSMB: Bool
     /// On-demand `-L` forwards (display label + spec). Stored as sshCM metadata
     /// comments, not native `LocalForward` directives, so plain connects don't
     /// forward — see `PortForward`.
@@ -48,6 +52,7 @@ struct SSHHost: Identifiable, Hashable {
         os: OS? = nil,
         remoteApp: String? = nil,
         vncPort: Int? = nil,
+        allowsSMB: Bool = false,
         rawLines: [String] = []
     ) {
         self.id = id
@@ -64,6 +69,7 @@ struct SSHHost: Identifiable, Hashable {
         self.os = os
         self.remoteApp = remoteApp
         self.vncPort = vncPort
+        self.allowsSMB = allowsSMB
         self.rawLines = rawLines
     }
 

@@ -129,6 +129,9 @@ struct SSHConfigFile {
         if let port = h.vncPort, port != 5900 {
             lines.append("    \(SSHConfigParser.vncPortMarker) \(port)")
         }
+        if h.allowsSMB {
+            lines.append("    \(SSHConfigParser.smbMarker) yes")
+        }
         if let v = h.hostName, !v.isEmpty { lines.append(indented("HostName", v)) }
         if let v = h.user, !v.isEmpty { lines.append(indented("User", v)) }
         if let p = h.port { lines.append(indented("Port", String(p))) }
