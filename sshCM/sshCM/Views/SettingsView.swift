@@ -577,7 +577,7 @@ private struct UpdatesSettingsTab: View {
         switch state {
         case .upToDate, .available, .error:
             return true
-        case .idle, .checking, .downloading, .installing:
+        case .idle, .checking, .downloading, .installing, .confirmUnsigned:
             return false
         }
     }

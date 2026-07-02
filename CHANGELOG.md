@@ -2,6 +2,21 @@
 
 All notable changes to **sshCM** ("SSH Config Manager") are documented here, newest first. Each entry corresponds to a [GitHub release](https://github.com/VladGavrila/sshCM/releases).
 
+## [1.16.1] — 2026-07-02
+
+### Security
+- **Safer auto-update.** Updates are now verified against sshCM's own developer signature *before* anything is installed (previously any validly-signed bundle was accepted, and the download's quarantine flag was cleared before the check even ran). If verification fails, sshCM asks before installing rather than trusting the download silently. The in-place swap during install is also now reversible — a failed update rolls back to the existing app instead of risking leaving none.
+- **Imported host files can no longer smuggle in commands.** Importing a hosts file now drops any `ProxyCommand`/`LocalCommand`/`PermitLocalCommand` directive it carries, and reduces its aliases and user names to the same characters the Add/Edit form allows — so a shared export can't run code the first time you connect, and an alias like `-oProxyCommand=…` can't be read by `ssh` as an option.
+- **Connect and key-setup now refuse a host alias or user name beginning with `-`,** which `ssh`/`ssh-copy-id` would otherwise treat as a command-line option.
+
+### Fixed
+- **A host with an out-of-range `Port` (e.g. a hand-edited `Port 70000`) no longer crashes the app at launch.** Such a value is now left untouched in the config instead of being treated as a usable port.
+- **Fewer false "host key changed" warnings.** When `known_hosts` holds more than one key of the same type for a host (a rotated-but-not-removed old key alongside the current one), sshCM now accepts a match against any of them, the way `ssh` itself does.
+- **`~/.ssh/config` is never briefly world-readable while saving.** The file is now staged with owner-only permissions before it's swapped into place.
+
+### Improved
+- **Update downloads no longer stutter the UI**, and one-shot terminal launch scripts left in the temp folder are now cleaned up instead of accumulating until reboot.
+
 ## [1.16.0] — 2026-06-28
 
 ### Added
@@ -217,6 +232,7 @@ All notable changes to **sshCM** ("SSH Config Manager") are documented here, new
   - **Configure terminal** in Settings (defaults to Terminal.app).
 - Config handling preserves structure: atomic `0600` writes, `~/.ssh` created `0700` if missing, and comments, blank lines, global directives, `Include`/`Match` blocks, and unknown keys round-trip verbatim.
 
+[1.16.1]: https://github.com/VladGavrila/sshCM/releases/tag/v1.16.1
 [1.16.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.16.0
 [1.15.1]: https://github.com/VladGavrila/sshCM/releases/tag/v1.15.1
 [1.15.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.15.0

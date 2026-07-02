@@ -236,6 +236,14 @@ struct SeedKeySheet: View {
 
     private func copyKey() {
         guard let key = selectedKey, let alias else { return }
+        // A dash-leading alias or user would be read by ssh-copy-id/ssh as an
+        // option rather than a destination. Aliases are validated on add, but an
+        // imported host or alternate user might not be — refuse rather than build
+        // an injectable command line.
+        if alias.hasPrefix("-") || (userOverride?.hasPrefix("-") ?? false) {
+            launchError = "Can't set up keys: the host alias or user starts with “-”."
+            return
+        }
         let tmp = FileManager.default.temporaryDirectory
         let token = UUID().uuidString
         let statusURL = tmp.appendingPathComponent("sshcm-status-\(token)")

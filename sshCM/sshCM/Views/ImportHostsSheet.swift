@@ -33,8 +33,17 @@ struct ImportHostsSheet: View {
         Set(store.file.hosts.compactMap { $0.aliases.first })
     }
 
+    /// The primary alias as it will actually be stored — sanitized to the same
+    /// character set the add/edit form enforces — so conflict detection and
+    /// metadata keying match what lands in `~/.ssh/config`.
+    private func storedAlias(_ host: ExportedHost) -> String? {
+        guard let raw = host.primaryAlias else { return nil }
+        let sanitized = SSHHost.sanitizeAliasToken(raw)
+        return sanitized.isEmpty ? nil : sanitized
+    }
+
     private func conflicts(_ host: ExportedHost) -> Bool {
-        guard let alias = host.primaryAlias else { return false }
+        guard let alias = storedAlias(host) else { return false }
         return existingAliases.contains(alias)
     }
 
@@ -313,25 +322,25 @@ struct ImportHostsSheet: View {
     /// Adds a brand-new host (fresh UUID) and applies its metadata. Publishing to
     /// `/etc/hosts` is deferred — see `advanceConflicts()`.
     private func applyNew(_ host: ExportedHost) {
-        store.add(host.toSSHHost(), publish: false)
+        store.add(host.toSSHHost().sanitizedForImport(), publish: false)
         applyMetadata(host)
     }
 
     /// Overwrites the existing host that shares this primary alias, reusing its
     /// UUID so any in-flight references stay valid.
     private func applyReplace(_ host: ExportedHost) {
-        guard let alias = host.primaryAlias,
+        guard let alias = storedAlias(host),
               let existing = store.file.hosts.first(where: { $0.aliases.first == alias })
         else {
             applyNew(host)
             return
         }
-        store.update(host.toSSHHost(id: existing.id), publish: false)
+        store.update(host.toSSHHost(id: existing.id).sanitizedForImport(), publish: false)
         applyMetadata(host)
     }
 
     private func applyMetadata(_ host: ExportedHost) {
-        guard let alias = host.primaryAlias else { return }
+        guard let alias = storedAlias(host) else { return }
         tagsStore.set(host.tag, for: alias)
         if favorites.isFavorite(alias) != host.favorite {
             favorites.toggle(alias)

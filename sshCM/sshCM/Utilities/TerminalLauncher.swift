@@ -28,12 +28,23 @@ enum TerminalLauncher {
             throw TerminalLaunchError.invalidAlias
         }
 
+        // A leading `-` would make ssh read the alias as an option rather than a
+        // destination (e.g. `-oProxyCommand=…` → command execution). Single-quote
+        // escaping stops *shell* injection but not ssh argument injection, so
+        // reject dash-leading values outright — a real Host alias never starts
+        // with one (the add/edit form already forbids it; imports may not).
+        guard !trimmedAlias.hasPrefix("-") else {
+            throw TerminalLaunchError.invalidAlias
+        }
+
         let escapedAlias = trimmedAlias.replacingOccurrences(of: "'", with: "'\\''")
         var userArg = ""
         if let user, !user.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let escapedUser = user
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: "'", with: "'\\''")
+            let trimmedUser = user.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedUser.hasPrefix("-") else {
+                throw TerminalLaunchError.invalidUser
+            }
+            let escapedUser = trimmedUser.replacingOccurrences(of: "'", with: "'\\''")
             userArg = " -l '\(escapedUser)'"
         }
 
@@ -98,6 +109,8 @@ enum TerminalLauncher {
     }
 
     private static func writeTempScript(body: String) throws -> URL {
+        sweepStaleScripts()
+
         let script = """
         #!/bin/bash
         \(body)
@@ -112,16 +125,38 @@ enum TerminalLauncher {
         )
         return url
     }
+
+    /// Removes leftover one-shot launch scripts from previous sessions. Each
+    /// launch writes a `sshcm-<uuid>.command` that `open` consumes but never
+    /// deletes, so without this they pile up in the temp dir until reboot. Only
+    /// scripts older than an hour are swept, so one about to be opened is safe.
+    private static func sweepStaleScripts() {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: fm.temporaryDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else { return }
+        let cutoff = Date().addingTimeInterval(-3600)
+        for url in entries
+        where url.lastPathComponent.hasPrefix("sshcm-") && url.pathExtension == "command" {
+            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey])
+                .contentModificationDate) ?? .distantPast
+            if modified < cutoff { try? fm.removeItem(at: url) }
+        }
+    }
 }
 
 enum TerminalLaunchError: LocalizedError {
     case invalidAlias
+    case invalidUser
     case terminalAppNotFound(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidAlias:
-            return "Host alias is empty."
+            return "Host alias is empty or starts with “-”."
+        case .invalidUser:
+            return "User name can't start with “-”."
         case .terminalAppNotFound(let path):
             return "Terminal application not found at \(path)."
         }

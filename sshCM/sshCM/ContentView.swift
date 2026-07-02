@@ -226,7 +226,8 @@ struct ContentView: View {
         case .available(let r): return 3 &+ r.tag.hashValue
         case .downloading: return 4
         case .installing: return 5
-        case .error(let m): return 6 &+ m.hashValue
+        case .confirmUnsigned(let r): return 6 &+ r.tag.hashValue
+        case .error(let m): return 7 &+ m.hashValue
         }
     }
 
@@ -342,7 +343,7 @@ struct ContentView: View {
             }
         case .upToDate, .idle:
             presentedRelease = nil
-        case .checking, .downloading, .installing, .error:
+        case .checking, .downloading, .installing, .confirmUnsigned, .error:
             break
         }
     }

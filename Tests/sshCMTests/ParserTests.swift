@@ -127,6 +127,22 @@ struct ParserTests {
         #expect(host.rawLines.contains("    Port notanumber"))
     }
 
+    @Test func outOfRangePortFallsToRawLine() {
+        // A port outside 1…65535 must not become a typed port — it would trap
+        // `UInt16(port)` in the reachability probe. It round-trips as a raw line.
+        let text = "Host myserver\n    HostName example.com\n    Port 70000\n"
+        let host = SSHConfigParser.parse(text).hosts[0]
+        #expect(host.port == nil)
+        #expect(host.rawLines.contains("    Port 70000"))
+    }
+
+    @Test func portZeroFallsToRawLine() {
+        let text = "Host myserver\n    HostName example.com\n    Port 0\n"
+        let host = SSHConfigParser.parse(text).hosts[0]
+        #expect(host.port == nil)
+        #expect(host.rawLines.contains("    Port 0"))
+    }
+
     @Test func tabSeparatedKeyValueParsed() {
         // OpenSSH allows tabs as key-value separators. Previously this fell to rawLines.
         let text = "Host myserver\n\tHostName\texample.com\n"

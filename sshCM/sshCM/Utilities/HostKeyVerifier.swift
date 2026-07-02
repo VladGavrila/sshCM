@@ -50,12 +50,15 @@ enum HostKeyVerifier {
         // Never connected before / not pinned: trust-on-first-use, no warning.
         guard !stored.isEmpty else { return .unknown }
 
-        // Compare per key type. A mismatch on any type that exists in both is a
-        // changed key.
+        // Compare per key type. `known_hosts` can hold several entries of the
+        // same type (a stale key plus the current one); ssh accepts the host if
+        // *any* stored key of that type matches, so we do too — matching only the
+        // first stored key would raise a false "key changed" alarm. A mismatch is
+        // only real when the presented key matches *none* of the stored ones.
         var sawMatch = false
         for (type, scannedKey) in scanned {
-            guard let storedKey = stored[type] else { continue }
-            if storedKey == scannedKey {
+            guard let storedForType = stored[type] else { continue }
+            if storedForType.contains(scannedKey) {
                 sawMatch = true
             } else {
                 let fp = await Task.detached(priority: .utility) {
@@ -79,14 +82,16 @@ enum HostKeyVerifier {
         return parseKeyLines(result.stdout)
     }
 
-    /// Returns a map of `keytype -> base64 key` for `target` from known_hosts.
-    /// `ssh-keygen -F` handles hashed entries, which a plain file read can't.
-    nonisolated private static func storedKeys(target: String) -> [String: String] {
+    /// Returns a map of `keytype -> [base64 key]` for `target` from known_hosts —
+    /// all stored keys per type, since `known_hosts` may legitimately list more
+    /// than one. `ssh-keygen -F` handles hashed entries, which a plain file read
+    /// can't.
+    nonisolated private static func storedKeys(target: String) -> [String: [String]] {
         // No `-f`: ssh-keygen defaults to the user's ~/.ssh/known_hosts (and
         // known_hosts2). Exit code is non-zero when not found.
         let result = run(keygenPath, ["-F", target])
         guard result.exitCode == 0 else { return [:] }
-        return parseKeyLines(result.stdout)
+        return parseKeyLinesGrouped(result.stdout)
     }
 
     /// SHA256 fingerprint of a single presented key, for display to the user.
@@ -123,6 +128,21 @@ enum HostKeyVerifier {
             let key = String(fields[2])
             // First occurrence wins; both tools emit at most one line per type.
             if keys[type] == nil { keys[type] = key }
+        }
+        return keys
+    }
+
+    /// Like `parseKeyLines`, but keeps *every* key per type rather than only the
+    /// first — used for the stored `known_hosts` side, which can list several
+    /// keys of the same type (e.g. a rotated-but-not-removed old key).
+    nonisolated private static func parseKeyLinesGrouped(_ text: String) -> [String: [String]] {
+        var keys: [String: [String]] = [:]
+        for rawLine in text.split(separator: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.hasPrefix("#") || line.hasPrefix("@") { continue }
+            let fields = line.split(separator: " ", omittingEmptySubsequences: true)
+            guard fields.count >= 3 else { continue }
+            keys[String(fields[1]), default: []].append(String(fields[2]))
         }
         return keys
     }

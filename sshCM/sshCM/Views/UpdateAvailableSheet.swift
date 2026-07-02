@@ -62,6 +62,20 @@ struct UpdateAvailableSheet: View {
                     .font(.callout).foregroundStyle(.secondary)
                 Spacer()
             }
+        case .confirmUnsigned:
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Signature verification failed", systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout).foregroundStyle(.orange)
+                Text("This update isn't signed by the expected developer. Install it anyway only if you trust the source of this download.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button("Cancel") { checker.cancelUnsignedInstall(); dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                    Spacer()
+                    Button("Install Anyway", role: .destructive) { checker.confirmUnsignedInstall() }
+                }
+            }
         case .error(let msg):
             VStack(alignment: .leading, spacing: 8) {
                 Text(msg).font(.callout).foregroundStyle(.red)

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Loopback-only ATS relaxation: lets the updater's download/parse/install
+	     flow be pointed at a local http server (SSHCM_RELEASES_API) for end-to-end
+	     testing without publishing to GitHub. Does NOT permit insecure loads to
+	     public hosts — only localhost / .local / loopback. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

@@ -77,12 +77,27 @@ final class ConfigStore {
     private func persist() {
         do {
             try ensureSSHDirectory()
-            let text = file.serialize()
-            try text.data(using: .utf8)?.write(to: fileURL, options: .atomic)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o600],
-                ofItemAtPath: fileURL.path
-            )
+            let data = Data(file.serialize().utf8)
+            let fm = FileManager.default
+
+            // Stage into a sibling temp file created 0600 up front, then swap it
+            // in atomically. `Data.write(.atomic)` would create its own temp at
+            // the process umask (typically 0644), leaving the config's bytes
+            // briefly world-readable before `setAttributes` tightens them.
+            let dir = fileURL.deletingLastPathComponent()
+            let tmp = dir.appendingPathComponent(".\(fileURL.lastPathComponent).sshcm-\(UUID().uuidString)")
+            guard fm.createFile(atPath: tmp.path, contents: data,
+                                attributes: [.posixPermissions: 0o600]) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            if fm.fileExists(atPath: fileURL.path) {
+                _ = try fm.replaceItemAt(fileURL, withItemAt: tmp)
+            } else {
+                try fm.moveItem(at: tmp, to: fileURL)
+            }
+            // Re-assert 0600: replaceItemAt preserves the *original* file's
+            // permissions, which may have been looser than we want.
+            try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         } catch {
             loadError = "Failed to save: \(error.localizedDescription)"
         }

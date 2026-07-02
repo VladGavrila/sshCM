@@ -112,7 +112,7 @@ struct sshCMApp: App {
     @State private var reachCache = ReachabilityCache()
     @State private var bypassStore = HostKeyBypassStore()
     @State private var remoteAppsStore = RemoteAppsStore()
-    @State private var updater = UpdateChecker()
+    @State private var updater = UpdateChecker(installer: LiveUpdateInstaller())
     @State private var paletteBridge = PaletteBridge()
     @State private var hotKey = GlobalHotKey()
     @State private var mainWindowHotKey = GlobalHotKey()

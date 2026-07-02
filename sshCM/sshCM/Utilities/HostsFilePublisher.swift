@@ -149,7 +149,14 @@ enum HostsFilePublisher {
     /// Classic elevation via the system admin-authentication dialog. Works for
     /// every user and is the fallback when `sudo`/Touch ID isn't usable.
     private static func runViaOSAScript(shell: String) async -> SyncResult {
-        let appleScript = "do shell script \"\(shell)\" with administrator privileges"
+        // `shell` is embedded in an AppleScript double-quoted string literal, so
+        // any backslash or double-quote in it must be escaped or the script is
+        // malformed (and, in principle, injectable). Today the only variable is a
+        // UUID temp path, but escape defensively rather than rely on that.
+        let escaped = shell
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let appleScript = "do shell script \"\(escaped)\" with administrator privileges"
         return await Task.detached(priority: .userInitiated) {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")

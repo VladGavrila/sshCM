@@ -25,8 +25,9 @@ let package = Package(
         ),
         .target(
             name: "sshCMUtilities",
+            dependencies: ["sshCMModels"],
             path: "sshCM/sshCM/Utilities",
-            sources: ["SemanticVersion.swift"]
+            sources: ["SemanticVersion.swift", "UpdateInstalling.swift", "UpdateChecker.swift"]
         ),
         .testTarget(
             name: "sshCMTests",

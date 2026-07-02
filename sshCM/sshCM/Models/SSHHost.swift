@@ -81,6 +81,59 @@ struct SSHHost: Identifiable, Hashable {
         aliases.joined(separator: " ")
     }
 
+    // MARK: - Import safety
+
+    /// SSH directives an imported host could use to run arbitrary commands the
+    /// moment ssh connects. They are dropped from an imported host's `rawLines`
+    /// (see `sanitizedForImport`), so a shared/exported hosts file can't smuggle
+    /// code execution into `~/.ssh/config` for a directive sshCM doesn't surface
+    /// or let the user review.
+    static let dangerousImportedDirectives: Set<String> = [
+        "proxycommand", "localcommand", "permitlocalcommand"
+    ]
+
+    /// Whether a raw config line sets one of `dangerousImportedDirectives`.
+    /// Matches both `Key value` and `Key=value`, case-insensitively; comments
+    /// and blanks are never dangerous.
+    static func isDangerousImportedLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { return false }
+        let keyword = trimmed
+            .split(maxSplits: 1, whereSeparator: { $0 == " " || $0 == "\t" || $0 == "=" })
+            .first
+            .map { $0.lowercased() } ?? ""
+        return dangerousImportedDirectives.contains(keyword)
+    }
+
+    /// Strips every character not allowed in an SSH alias / `/etc/hosts` hostname
+    /// (the same set the add/edit form enforces live), so an imported token can't
+    /// carry spaces or commas into the config. Leading `-` is also removed — it's
+    /// a legal character mid-token (`web-server`) but a leading one would make ssh
+    /// read the token as an option.
+    static func sanitizeAliasToken(_ value: String) -> String {
+        let filtered = String(String.UnicodeScalarView(
+            value.unicodeScalars.filter { HostsFileBlock.hostnameAllowedCharacters.contains($0) }
+        ))
+        return String(filtered.drop(while: { $0 == "-" }))
+    }
+
+    private static func sanitizeAliasTokens(_ values: [String]) -> [String] {
+        values.map(sanitizeAliasToken).filter { !$0.isEmpty }
+    }
+
+    /// A copy safe to persist to `~/.ssh/config` from an imported document:
+    /// alias/user tokens are reduced to permitted characters, and any
+    /// command-executing directive smuggled into `rawLines` is removed. Used at
+    /// the import boundary — hosts created through the UI are already clean.
+    func sanitizedForImport() -> SSHHost {
+        var copy = self
+        copy.aliases = Self.sanitizeAliasTokens(aliases)
+        copy.searchAliases = Self.sanitizeAliasTokens(searchAliases)
+        copy.alternateUsers = Self.sanitizeAliasTokens(alternateUsers)
+        copy.rawLines = rawLines.filter { !Self.isDangerousImportedLine($0) }
+        return copy
+    }
+
     static func jumpHostAliases(in hosts: [SSHHost]) -> Set<String> {
         var aliases = Set<String>()
         for host in hosts {

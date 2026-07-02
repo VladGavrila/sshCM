@@ -4,7 +4,11 @@ import Network
 enum Reachability {
     static func probe(host: String, port: Int, timeout: TimeInterval = 5.0) async -> Bool {
         await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            guard let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
+            // `UInt16(port)` traps on an out-of-range port (e.g. a hand-edited
+            // `Port 70000` in the config), which — since every host is probed on
+            // launch — would crash the app at startup. Treat anything outside
+            // 1…65535 as simply unreachable.
+            guard let port16 = UInt16(exactly: port), let nwPort = NWEndpoint.Port(rawValue: port16) else {
                 continuation.resume(returning: false)
                 return
             }

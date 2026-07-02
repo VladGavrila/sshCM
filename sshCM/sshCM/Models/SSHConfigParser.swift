@@ -215,8 +215,11 @@ enum SSHConfigParser {
         case "user":
             host.user = value
         case "port":
-            host.port = Int(value)
-            if host.port == nil { return false }
+            // Only accept a real TCP port. An out-of-range or non-numeric value
+            // is left as a raw line (round-trips verbatim) rather than surfaced
+            // as a typed port — and never reaches `UInt16(port)` in Reachability.
+            guard let p = Int(value), (1...65535).contains(p) else { return false }
+            host.port = p
         case "identityfile":
             host.identityFile = value
         case "proxyjump":

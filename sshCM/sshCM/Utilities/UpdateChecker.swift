@@ -1,6 +1,8 @@
 import Foundation
 import Observation
-import AppKit
+#if canImport(sshCMModels)
+@testable import sshCMModels
+#endif
 
 @MainActor
 @Observable
@@ -21,18 +23,31 @@ final class UpdateChecker {
         case available(Release)
         case downloading(Double)
         case installing
+        /// The downloaded update isn't signed by the expected developer; waiting
+        /// for the user to accept it as unsigned (or cancel).
+        case confirmUnsigned(Release)
         case error(String)
     }
 
     // The full releases list (newest first), not /releases/latest: we want every release
     // between the user's current version and the newest so the update sheet can show the
     // accumulated changelog, not just the last bump.
-    static let releasesAPI = URL(string: "https://api.github.com/repos/VladGavrila/sshCM/releases?per_page=30")!
+    //
+    // Overridable via the `SSHCM_RELEASES_API` env var so the whole download/parse/install
+    // flow can be pointed at a local server (e.g. `python3 -m http.server`) for an
+    // end-to-end test without publishing anything to GitHub. Defaults to the real API.
+    static var releasesAPI: URL {
+        if let override = ProcessInfo.processInfo.environment["SSHCM_RELEASES_API"],
+           let url = URL(string: override) {
+            return url
+        }
+        return URL(string: "https://api.github.com/repos/VladGavrila/sshCM/releases?per_page=30")!
+    }
     static let assetName = "sshCM.zip"
 
-    private let autoCheckKey = "autoCheckForUpdates"
-    private let lastCheckKey = "updateLastCheck"
-    private let skippedVersionKey = "skippedUpdateVersion"
+    private let autoCheckKey = AppStorageKey.autoCheckForUpdates.rawValue
+    private let lastCheckKey = AppStorageKey.updateLastCheck.rawValue
+    private let skippedVersionKey = AppStorageKey.skippedUpdateVersion.rawValue
     private let checkInterval: TimeInterval = 86_400
 
     var state: State = .idle
@@ -76,6 +91,18 @@ final class UpdateChecker {
 
     private var downloadTask: Task<Void, Never>?
 
+    /// A verified-but-unsigned update awaiting the user's explicit accept via
+    /// `confirmUnsignedInstall()`. Held across the `.confirmUnsigned` prompt.
+    private var pendingUnsigned: PreparedInstall?
+
+    /// The install side (verify/commit), injected so tests can drive the state
+    /// machine with a fake instead of the real `codesign`/swap machinery.
+    private let installer: any UpdateInstalling
+
+    init(installer: any UpdateInstalling = DisabledUpdateInstaller()) {
+        self.installer = installer
+    }
+
     func checkAtLaunchIfNeeded() {
         guard autoCheckForUpdates else { return }
         if let last = lastCheck, Date().timeIntervalSince(last) < checkInterval { return }
@@ -86,6 +113,7 @@ final class UpdateChecker {
         if case .checking = state { return }
         if case .downloading = state { return }
         if case .installing = state { return }
+        if case .confirmUnsigned = state { return }
         state = .checking
         do {
             let (latest, all) = try await fetchReleases()
@@ -144,16 +172,61 @@ final class UpdateChecker {
         do {
             let zipURL = try await downloadZip(release)
             try Task.checkCancellation()
-            state = .installing
-            try AppInstaller.install(
-                zipURL: zipURL,
-                expectedBundleID: Bundle.main.bundleIdentifier ?? "com.vgdev.sshCM"
-            )
+            await installDownloaded(zipURL, release: release)
         } catch is CancellationError {
             state = .idle
         } catch {
             state = .error("Update failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Verify → commit (or prompt) for an already-downloaded zip. Not private so
+    /// the state machine can be unit-tested with a fake installer, bypassing the
+    /// network download entirely.
+    func installDownloaded(_ zipURL: URL, release: Release) async {
+        state = .installing
+        do {
+            let prepared = try await installer.verifyAndPrepare(
+                zipURL: zipURL,
+                expectedBundleID: Bundle.main.bundleIdentifier ?? "com.vgdev.sshCM"
+            )
+            if prepared.signatureVerified {
+                try await installer.commitInstall(prepared)
+            } else {
+                // Don't silently install an update we couldn't attribute to the
+                // expected developer — hand the decision to the user.
+                pendingUnsigned = prepared
+                state = .confirmUnsigned(release)
+            }
+        } catch is CancellationError {
+            state = .idle
+        } catch {
+            state = .error("Update failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// User accepted the unsigned update from the `.confirmUnsigned` prompt.
+    func confirmUnsignedInstall() {
+        Task { await commitPendingUnsigned() }
+    }
+
+    /// The awaitable core of `confirmUnsignedInstall()`, so tests can await the
+    /// commit rather than racing a fire-and-forget task.
+    func commitPendingUnsigned() async {
+        guard let prepared = pendingUnsigned else { return }
+        pendingUnsigned = nil
+        state = .installing
+        do {
+            try await installer.commitInstall(prepared)
+        } catch {
+            state = .error("Update failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// User declined the unsigned update.
+    func cancelUnsignedInstall() {
+        pendingUnsigned = nil
+        state = .idle
     }
 
     /// A parsed published release, used to accumulate the changelog across versions.
@@ -251,40 +324,66 @@ final class UpdateChecker {
         let total = response.expectedContentLength > 0 ? response.expectedContentLength : release.assetSize
 
         FileManager.default.createFile(atPath: zipURL.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: zipURL)
-        defer { try? handle.close() }
 
-        var buffer = Data()
-        buffer.reserveCapacity(64 * 1024)
-        var written: Int64 = 0
-        var lastReport: Double = -1
+        // Consume the byte stream off the main actor — draining `AsyncBytes` one
+        // byte at a time on the main thread stutters the UI for a multi-MB asset.
+        // `progressStream` captures no `self`, so the writer runs on a detached
+        // task while progress values are only ever touched from this (main-actor)
+        // call site — no cross-actor `self` hand-off, which Swift 6 would flag.
+        for try await p in Self.progressStream(consuming: asyncBytes, writingTo: zipURL, total: total) {
+            state = .downloading(p)
+        }
 
-        for try await byte in asyncBytes {
-            try Task.checkCancellation()
-            buffer.append(byte)
-            if buffer.count >= 64 * 1024 {
-                try handle.write(contentsOf: buffer)
-                written += Int64(buffer.count)
-                buffer.removeAll(keepingCapacity: true)
-                if total > 0 {
-                    let p = min(1.0, Double(written) / Double(total))
-                    if p - lastReport >= 0.01 {
-                        lastReport = p
-                        state = .downloading(p)
+        return zipURL
+    }
+
+    /// Writes `asyncBytes` to `zipURL` on a detached task, yielding throttled
+    /// progress (0...1) as it goes. A free function (no captured `self`) so the
+    /// writer body is Sendable-safe to run off the main actor.
+    private static func progressStream(
+        consuming asyncBytes: URLSession.AsyncBytes,
+        writingTo zipURL: URL,
+        total: Int64
+    ) -> AsyncThrowingStream<Double, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task.detached(priority: .utility) {
+                do {
+                    let handle = try FileHandle(forWritingTo: zipURL)
+                    defer { try? handle.close() }
+
+                    var buffer = Data()
+                    buffer.reserveCapacity(64 * 1024)
+                    var written: Int64 = 0
+                    var lastReport: Double = -1
+
+                    for try await byte in asyncBytes {
+                        try Task.checkCancellation()
+                        buffer.append(byte)
+                        if buffer.count >= 64 * 1024 {
+                            try handle.write(contentsOf: buffer)
+                            written += Int64(buffer.count)
+                            buffer.removeAll(keepingCapacity: true)
+                            if total > 0 {
+                                let p = min(1.0, Double(written) / Double(total))
+                                if p - lastReport >= 0.01 {
+                                    lastReport = p
+                                    continuation.yield(p)
+                                }
+                            }
+                        }
                     }
+                    if !buffer.isEmpty {
+                        try handle.write(contentsOf: buffer)
+                        written += Int64(buffer.count)
+                    }
+                    continuation.yield(total > 0 ? min(1.0, Double(written) / Double(total)) : 1.0)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
-        if !buffer.isEmpty {
-            try handle.write(contentsOf: buffer)
-            written += Int64(buffer.count)
-        }
-        if total > 0 {
-            state = .downloading(min(1.0, Double(written) / Double(total)))
-        } else {
-            state = .downloading(1.0)
-        }
-        return zipURL
     }
 
     private struct GHRelease: Decodable {
