@@ -179,6 +179,37 @@ struct MetadataMarkerTests {
         #expect(SSHConfigParser.remoteAppMarker == "# sshCM-remoteapp:")
         #expect(SSHConfigParser.vncPortMarker == "# sshCM-vncport:")
         #expect(SSHConfigParser.smbMarker == "# sshCM-smb:")
+        #expect(SSHConfigParser.zoneMarker == "# sshCM-zone:")
+        #expect(SSHConfigParser.tagMarker == "# sshCM-tag:")
+        #expect(SSHConfigParser.favoriteMarker == "# sshCM-favorite:")
+    }
+
+    @Test func tagMarkerParsed() {
+        let text = "Host myserver\n    # sshCM-tag: green\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].tag == .green)
+    }
+
+    @Test func tagMarkerIsCaseInsensitive() {
+        let text = "Host myserver\n    # sshCM-tag: GREEN\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].tag == .green)
+    }
+
+    @Test func unknownTagValueLeavesTagUnset() {
+        let text = "Host myserver\n    # sshCM-tag: chartreuse\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].tag == nil)
+    }
+
+    @Test func missingTagMarkerLeavesTagUnset() {
+        #expect(SSHConfigParser.parse("Host myserver\n").hosts[0].tag == nil)
+    }
+
+    @Test func favoriteMarkerParsed() {
+        let text = "Host myserver\n    # sshCM-favorite: yes\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].isFavorite == true)
+    }
+
+    @Test func missingFavoriteMarkerLeavesHostUnfavorited() {
+        #expect(SSHConfigParser.parse("Host myserver\n").hosts[0].isFavorite == false)
     }
 
     @Test func remoteAppMarkerParsed() {
@@ -189,6 +220,31 @@ struct MetadataMarkerTests {
     @Test func missingRemoteAppMarkerLeavesRemoteAppUnset() {
         let text = "Host myserver\n    HostName example.com\n"
         #expect(SSHConfigParser.parse(text).hosts[0].remoteApp == nil)
+    }
+
+    @Test func zoneMarkerParsed() {
+        let text = "Host myserver\n    # sshCM-zone: home\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].zone == "home")
+    }
+
+    @Test func zoneMarkerWithInteriorSpacesParsed() {
+        let text = "Host myserver\n    # sshCM-zone: office lan\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].zone == "office lan")
+    }
+
+    @Test func zoneMarkerValueIsTrimmed() {
+        let text = "Host myserver\n    # sshCM-zone:    home   \n"
+        #expect(SSHConfigParser.parse(text).hosts[0].zone == "home")
+    }
+
+    @Test func emptyZoneMarkerLeavesZoneUnset() {
+        let text = "Host myserver\n    # sshCM-zone: \n"
+        #expect(SSHConfigParser.parse(text).hosts[0].zone == nil)
+    }
+
+    @Test func missingZoneMarkerLeavesZoneUnset() {
+        let text = "Host myserver\n    HostName example.com\n"
+        #expect(SSHConfigParser.parse(text).hosts[0].zone == nil)
     }
 
     @Test func macOSMarkerParsed() {
@@ -346,6 +402,87 @@ struct RoundTripTests {
         #expect(SSHConfigParser.parse(file.serialize()).hosts[0].remoteApp == "RustDesk")
     }
 
+    @Test func zoneRoundTrip() {
+        let text = "Host myserver\n    # sshCM-zone: home\n"
+        let file = SSHConfigParser.parse(text)
+        #expect(SSHConfigParser.parse(file.serialize()).hosts[0].zone == "home")
+    }
+
+    @Test func tagRoundTrip() {
+        let text = "Host myserver\n    # sshCM-tag: blue\n"
+        let file = SSHConfigParser.parse(text)
+        #expect(SSHConfigParser.parse(file.serialize()).hosts[0].tag == .blue)
+    }
+
+    @Test func favoriteRoundTrip() {
+        let text = "Host myserver\n    # sshCM-favorite: yes\n    HostName example.com\n"
+        let file = SSHConfigParser.parse(text)
+        #expect(SSHConfigParser.parse(file.serialize()).hosts[0].isFavorite == true)
+    }
+
+    @Test func settingTagEmitsExactlyOneMarkerLine() {
+        var host = SSHHost(aliases: ["myserver"])
+        host.tag = .red
+        var file = SSHConfigFile()
+        file.append(host: host)
+        let serialized = file.serialize()
+        #expect(serialized.components(separatedBy: SSHConfigParser.tagMarker).count - 1 == 1)
+        #expect(serialized.contains("# sshCM-tag: red"))
+    }
+
+    @Test func clearingTagRemovesMarkerLine() {
+        var file = SSHConfigParser.parse("Host myserver\n    # sshCM-tag: red\n")
+        var host = file.hosts[0]
+        host.tag = nil
+        file.update(host)
+        #expect(!file.serialize().contains(SSHConfigParser.tagMarker))
+    }
+
+    @Test func unfavoritingRemovesMarkerLine() {
+        var file = SSHConfigParser.parse("Host myserver\n    # sshCM-favorite: yes\n")
+        var host = file.hosts[0]
+        host.isFavorite = false
+        file.update(host)
+        #expect(!file.serialize().contains(SSHConfigParser.favoriteMarker))
+    }
+
+    @Test func configWithZoneAmongOtherMarkersRoundTripsByteIdentical() {
+        let text = """
+        # Global comment
+        ServerAliveInterval 60
+
+        Host myserver
+            # sshCM-aliases: alt1, alt2
+            # sshCM-zone: office lan
+            HostName example.com
+            ForwardAgent yes
+
+        Match host *.internal
+            StrictHostKeyChecking no
+
+        """
+        let file = SSHConfigParser.parse(text)
+        #expect(file.serialize() == text)
+    }
+
+    @Test func settingZoneEmitsExactlyOneMarkerLine() {
+        var host = SSHHost(aliases: ["myserver"])
+        host.zone = "home"
+        var file = SSHConfigFile()
+        file.append(host: host)
+        let serialized = file.serialize()
+        #expect(serialized.components(separatedBy: SSHConfigParser.zoneMarker).count - 1 == 1)
+        #expect(serialized.contains("# sshCM-zone: home"))
+    }
+
+    @Test func clearingZoneRemovesMarkerLine() {
+        var file = SSHConfigParser.parse("Host myserver\n    # sshCM-zone: home\n")
+        var host = file.hosts[0]
+        host.zone = nil
+        file.update(host)
+        #expect(!file.serialize().contains(SSHConfigParser.zoneMarker))
+    }
+
     // The legacy `# sshCM-os:` marker is only ever read for one-time migration —
     // it must never be written back out, even though it's still parsed.
     @Test func legacyOSMarkerIsNotReSerialized() {
@@ -410,5 +547,49 @@ struct RoundTripTests {
 
     @Test func emptyFileSerializesToSingleNewline() {
         #expect(SSHConfigFile().serialize() == "\n")
+    }
+}
+
+// MARK: - Tag/favorite one-time migration
+
+@Suite("SSHConfigFile – tag/favorite migration")
+struct TagFavoriteMigrationTests {
+
+    @Test func appliesFavoriteAndTagByPrimaryAlias() {
+        var file = SSHConfigParser.parse("Host web\nHost db\n")
+        let changed = file.applyMigratedTagsFavorites(
+            favorites: ["web"],
+            tags: ["db": .green]
+        )
+        #expect(changed)
+        #expect(file.hosts[0].isFavorite == true)
+        #expect(file.hosts[0].tag == nil)
+        #expect(file.hosts[1].isFavorite == false)
+        #expect(file.hosts[1].tag == .green)
+    }
+
+    @Test func ignoresAliasesWithNoMatchingHost() {
+        var file = SSHConfigParser.parse("Host web\n")
+        let changed = file.applyMigratedTagsFavorites(
+            favorites: ["nonexistent"],
+            tags: ["also-gone": .red]
+        )
+        #expect(!changed)
+        #expect(file.hosts[0].isFavorite == false)
+        #expect(file.hosts[0].tag == nil)
+    }
+
+    @Test func emptyInputsAreANoop() {
+        var file = SSHConfigParser.parse("Host web\n")
+        let changed = file.applyMigratedTagsFavorites(favorites: [], tags: [:])
+        #expect(!changed)
+    }
+
+    @Test func migratedValuesSurviveSerialization() {
+        var file = SSHConfigParser.parse("Host web\n    HostName web.example.com\n")
+        file.applyMigratedTagsFavorites(favorites: ["web"], tags: ["web": .purple])
+        let reparsed = SSHConfigParser.parse(file.serialize())
+        #expect(reparsed.hosts[0].isFavorite == true)
+        #expect(reparsed.hosts[0].tag == .purple)
     }
 }

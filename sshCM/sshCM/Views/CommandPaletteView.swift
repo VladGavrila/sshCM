@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct CommandPaletteView: View {
@@ -13,26 +14,59 @@ struct CommandPaletteView: View {
     let onDelete: (SSHHost) -> Void
     let onClose: () -> Void
 
-    @Environment(FavoritesStore.self) private var favorites
     @Environment(TagsStore.self) private var tagsStore
     @Environment(ReachabilityCache.self) private var reachCache
 
     @State private var query: String = ""
+    @State private var zoneFilter: String?
     @State private var selectedIndex: Int = 0
     @State private var userPickerHost: SSHHost?
     @State private var userPickerIndex: Int = 0
     @FocusState private var queryFocused: Bool
+    @State private var zoneBackspaceMonitor: Any?
 
     private let maxResults = 8
     private let approxRowHeight: CGFloat = 46
     private let minVisibleRows: CGFloat = 4
     private let maxVisibleRows: CGFloat = 7
 
+    /// `initialZone` seeds the zone chip from the main window's active zone
+    /// filter (if any) so the palette opens scoped to it; the user backspaces
+    /// on an empty query to clear the chip and search everything again.
+    init(
+        hosts: [SSHHost],
+        initialZone: String?,
+        onConnect: @escaping (SSHHost, String?) -> Void,
+        onConnectForwarding: @escaping (SSHHost, String?, Bool, Bool) -> Void,
+        onConnectVNC: @escaping (SSHHost) -> Void,
+        onConnectSMB: @escaping (SSHHost) -> Void,
+        onEdit: @escaping (SSHHost) -> Void,
+        onCopy: @escaping (SSHHost) -> Void,
+        onCopyIP: @escaping (SSHHost) -> Void,
+        onDelete: @escaping (SSHHost) -> Void,
+        onClose: @escaping () -> Void
+    ) {
+        self.hosts = hosts
+        self.onConnect = onConnect
+        self.onConnectForwarding = onConnectForwarding
+        self.onConnectVNC = onConnectVNC
+        self.onConnectSMB = onConnectSMB
+        self.onEdit = onEdit
+        self.onCopy = onCopy
+        self.onCopyIP = onCopyIP
+        self.onDelete = onDelete
+        self.onClose = onClose
+        _zoneFilter = State(initialValue: initialZone)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
+                if let zoneFilter {
+                    zoneChip(zoneFilter)
+                }
                 TextField("Search hosts…", text: $query)
                     .textFieldStyle(.plain)
                     .font(.title3)
@@ -47,7 +81,7 @@ struct CommandPaletteView: View {
                 if let host = userPickerHost {
                     userPickerContent(for: host)
                 } else if results.isEmpty {
-                    Text(hosts.isEmpty ? "No hosts in ~/.ssh/config." : "No matches for \"\(query)\".")
+                    Text(emptyResultsMessage)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -117,7 +151,15 @@ struct CommandPaletteView: View {
             selectedIndex = 0
             dismissUserPicker()
         }
-        .onAppear { queryFocused = true }
+        .onChange(of: zoneFilter) { _, _ in
+            selectedIndex = 0
+            dismissUserPicker()
+        }
+        .onAppear {
+            queryFocused = true
+            installZoneBackspaceMonitor()
+        }
+        .onDisappear { removeZoneBackspaceMonitor() }
         .onKeyPress(.downArrow) {
             if userPickerHost != nil {
                 moveUserPicker(by: 1)
@@ -219,9 +261,8 @@ struct CommandPaletteView: View {
     }
 
     private func row(for host: SSHHost, index: Int) -> some View {
-        let alias = host.aliases.first ?? host.title
         let isSelected = index == selectedIndex
-        let isFav = favorites.isFavorite(alias)
+        let isFav = host.isFavorite
         let subtitle = subtitleString(for: host)
         let reachStatus = reachStatus(for: host)
         let isJumpHost = !Set(host.aliases).isDisjoint(with: jumpHostAliases)
@@ -331,6 +372,16 @@ struct CommandPaletteView: View {
         }
     }
 
+    /// Matches the zone badge styling used on host cards/rows.
+    private func zoneChip(_ zone: String) -> some View {
+        Text(zone)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(.quaternary, in: Capsule())
+    }
+
     private func hint(_ key: String, _ label: String) -> some View {
         HStack(spacing: 4) {
             Text(key)
@@ -399,6 +450,30 @@ struct CommandPaletteView: View {
         guard userPickerHost != nil else { return }
         userPickerHost = nil
         userPickerIndex = 0
+    }
+
+    /// `onKeyPress(.delete)` never fires here: the focused `TextField`'s field
+    /// editor consumes Backspace as a `deleteBackward:` text-editing command at
+    /// the AppKit level before SwiftUI's key-press dispatch sees it — even when
+    /// the field is empty. A local event monitor intercepts the raw key event
+    /// ahead of the responder chain, so we can swallow it to clear the zone
+    /// chip and let every other Backspace press (i.e. actual text deletion)
+    /// pass through untouched.
+    private func installZoneBackspaceMonitor() {
+        guard zoneBackspaceMonitor == nil else { return }
+        zoneBackspaceMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 51 /* Backspace */,
+                  zoneFilter != nil, query.isEmpty, userPickerHost == nil
+            else { return event }
+            zoneFilter = nil
+            return nil
+        }
+    }
+
+    private func removeZoneBackspaceMonitor() {
+        guard let zoneBackspaceMonitor else { return }
+        NSEvent.removeMonitor(zoneBackspaceMonitor)
+        self.zoneBackspaceMonitor = nil
     }
 
     private func moveUserPicker(by delta: Int) {
@@ -519,22 +594,21 @@ struct CommandPaletteView: View {
     }
 
     private var results: [SSHHost] {
+        let scopedHosts = zoneFilter.map { zone in hosts.filter { $0.zone == zone } } ?? hosts
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         let scored: [(host: SSHHost, score: Int)]
         if trimmed.isEmpty {
-            scored = hosts.map { ($0, 0) }
+            scored = scopedHosts.map { ($0, 0) }
         } else {
-            scored = hosts.compactMap { host in
+            scored = scopedHosts.compactMap { host in
                 let s = score(host: host, query: trimmed)
                 return s > 0 ? (host, s) : nil
             }
         }
 
         let ranked = scored.sorted { a, b in
-            let aFav = favorites.isFavorite(a.host.aliases.first ?? "")
-            let bFav = favorites.isFavorite(b.host.aliases.first ?? "")
-            let aScore = a.score + (aFav ? 50 : 0)
-            let bScore = b.score + (bFav ? 50 : 0)
+            let aScore = a.score + (a.host.isFavorite ? 50 : 0)
+            let bScore = b.score + (b.host.isFavorite ? 50 : 0)
             if aScore != bScore { return aScore > bScore }
             return a.host.title.localizedCaseInsensitiveCompare(b.host.title) == .orderedAscending
         }
@@ -542,10 +616,17 @@ struct CommandPaletteView: View {
         return Array(ranked.prefix(maxResults)).map(\.host)
     }
 
+    private var emptyResultsMessage: String {
+        guard !hosts.isEmpty else { return "No hosts in ~/.ssh/config." }
+        let zoneClause = zoneFilter.map { " in \"\($0)\"" } ?? ""
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty
+            ? "No hosts\(zoneClause)."
+            : "No matches for \"\(query)\"\(zoneClause)."
+    }
+
     private func score(host: SSHHost, query: String) -> Int {
-        let tagName = host.aliases.first
-            .flatMap { tagsStore.tag(for: $0) }
-            .map { tagsStore.displayName(for: $0) }
+        let tagName = host.tag.map { tagsStore.displayName(for: $0) }
         return HostSearchScorer.score(host: host, query: query, tagName: tagName)
     }
 }

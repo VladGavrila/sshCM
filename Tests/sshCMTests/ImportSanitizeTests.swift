@@ -73,4 +73,24 @@ struct ImportSanitizeTests {
         #expect(SSHHost.sanitizeAliasToken("host.name-1_2") == "host.name-1_2")
         #expect(SSHHost.sanitizeAliasToken("-leading") == "leading")
     }
+
+    @Test func sanitizesPaddedZone() {
+        let host = SSHHost(aliases: ["ok"], zone: "  home  ")
+        #expect(host.sanitizedForImport().zone == "home")
+    }
+
+    @Test func sanitizesEmptyZoneToNil() {
+        let host = SSHHost(aliases: ["ok"], zone: "   ")
+        #expect(host.sanitizedForImport().zone == nil)
+    }
+
+    @Test func zoneWithInteriorSpacesStripsToDisallowedCharacters() {
+        let host = SSHHost(aliases: ["ok"], zone: "office lan")
+        #expect(host.sanitizedForImport().zone == "officelan")
+    }
+
+    @Test func zoneWithLeadingDashStrips() {
+        let host = SSHHost(aliases: ["ok"], zone: "-office")
+        #expect(host.sanitizedForImport().zone == "office")
+    }
 }

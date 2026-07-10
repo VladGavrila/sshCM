@@ -1,38 +1,34 @@
 import SwiftUI
 
-/// Sheet that lets the user pick all-or-some hosts and write them (with their
-/// tag/favorite metadata) to a portable JSON file via a save panel.
-struct ExportHostsSheet: View {
+/// Bulk zone assignment sheet, opened from the Zones settings tab for one
+/// zone at a time. Mirrors `ExportHostsSheet`'s search + checkbox-list shape,
+/// reusing `HostSelectionRow`. Since a host belongs to at most one zone,
+/// checking a host that's currently in a *different* zone moves it — that
+/// other zone is shown as a secondary badge so the move isn't a surprise.
+struct ZoneAssignSheet: View {
+    let zone: String
     let hosts: [SSHHost]
 
+    @Environment(ConfigStore.self) private var store
     @Environment(TagsStore.self) private var tagsStore
     @Environment(ReachabilityCache.self) private var reachCache
     @Environment(\.dismiss) private var dismiss
 
     @State private var selected: Set<UUID>
-    @State private var exportError: String?
     @State private var filterText = ""
-    @State private var reachableOnly = false
 
-    init(hosts: [SSHHost]) {
+    init(zone: String, hosts: [SSHHost]) {
+        self.zone = zone
         self.hosts = hosts
-        _selected = State(initialValue: Set(hosts.map(\.id)))
+        _selected = State(initialValue: Set(hosts.filter { $0.zone == zone }.map(\.id)))
     }
 
-    /// Hosts currently shown given the filter text and the reachable-only toggle.
-    /// The filter scopes the export: only selected hosts that are visible are
-    /// written (see `selectedVisibleHosts`). The `selected` set itself is left
-    /// untouched, so hiding then re-showing a host preserves its checkbox state.
     private var visibleHosts: [SSHHost] {
         let query = filterText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return hosts }
         return hosts.filter { host in
-            if reachableOnly {
-                guard let key = ReachabilityCache.cacheKey(for: host),
-                      reachCache.status(for: key) == .reachable else { return false }
-            }
-            guard !query.isEmpty else { return true }
             let tagName = host.tag.map { tagsStore.displayName(for: $0) }
-            var haystacks: [String?] = [host.title, host.hostName, host.user, host.proxyJump, tagName]
+            var haystacks: [String?] = [host.title, host.hostName, host.user, host.proxyJump, tagName, host.zone]
             haystacks.append(contentsOf: host.searchAliases.map { Optional($0) })
             return haystacks.contains { value in
                 guard let value, !value.isEmpty else { return false }
@@ -41,26 +37,19 @@ struct ExportHostsSheet: View {
         }
     }
 
-    /// True when every currently-visible host is already selected.
     private var allVisibleSelected: Bool {
         let visible = visibleHosts
         return !visible.isEmpty && visible.allSatisfy { selected.contains($0.id) }
-    }
-
-    /// The hosts that will actually be exported: selected *and* currently shown,
-    /// so the filter scopes the export (matches the import sheet).
-    private var selectedVisibleHosts: [SSHHost] {
-        visibleHosts.filter { selected.contains($0.id) }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 8) {
                 HStack {
-                    Text("Export Hosts")
+                    Text("Assign Hosts to \(zone)")
                         .font(.headline)
                     Spacer()
-                    Text("\(selectedVisibleHosts.count) of \(hosts.count) selected")
+                    Text("\(selected.count) of \(hosts.count) selected")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -79,8 +68,6 @@ struct ExportHostsSheet: View {
                         .buttonStyle(.plain)
                     }
                     Divider().frame(height: 16)
-                    Toggle("Reachable only", isOn: $reachableOnly)
-                        .toggleStyle(.checkbox)
                     Button(allVisibleSelected ? "Deselect All" : "Select All") {
                         let ids = visibleHosts.map(\.id)
                         if allVisibleSelected {
@@ -105,7 +92,7 @@ struct ExportHostsSheet: View {
                         tag: host.tag,
                         reachStatus: reachStatus(for: host),
                         favorite: host.isFavorite,
-                        badge: nil,
+                        badge: otherZoneBadge(for: host),
                         isOn: Binding(
                             get: { selected.contains(host.id) },
                             set: { if $0 { selected.insert(host.id) } else { selected.remove(host.id) } }
@@ -113,12 +100,10 @@ struct ExportHostsSheet: View {
                     )
                 }
             }
-            .id("\(reachableOnly)|\(filterText)")
+            .id(filterText)
             .overlay {
                 if visibleHosts.isEmpty {
-                    Text(reachableOnly && filterText.isEmpty
-                         ? "No reachable hosts."
-                         : "No hosts match the filter.")
+                    Text("No hosts match the filter.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -129,58 +114,32 @@ struct ExportHostsSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Export…", action: export)
+                Button("Apply", action: apply)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(selectedVisibleHosts.isEmpty)
             }
             .padding(12)
         }
         .frame(minWidth: 600, minHeight: 380)
-        .alert(
-            "Export Failed",
-            isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })
-        ) {
-            Button("OK", role: .cancel) { exportError = nil }
-        } message: {
-            Text(exportError ?? "")
-        }
     }
 
-    private func export() {
-        let chosen = selectedVisibleHosts
-        guard !chosen.isEmpty else { return }
-
-        let document = HostPortability.makeDocument(hosts: chosen)
-
-        let data: Data
-        do {
-            data = try HostPortability.encode(document)
-        } catch {
-            exportError = "Could not encode hosts: \(error.localizedDescription)"
-            return
-        }
-
-        guard let url = FilePicker.pickExportDestination(suggestedName: defaultFileName()) else {
-            return // user cancelled the save panel; keep the sheet open
-        }
-
-        do {
-            try data.write(to: url, options: .atomic)
-            dismiss()
-        } catch {
-            exportError = "Could not write file: \(error.localizedDescription)"
-        }
+    private func otherZoneBadge(for host: SSHHost) -> String? {
+        guard let hostZone = host.zone, hostZone != zone else { return nil }
+        return hostZone
     }
 
-    private func defaultFileName() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return "sshcm-hosts-\(formatter.string(from: Date())).json"
-    }
-
-    /// Live reachability for a host, matching `HostRowView`'s logic.
     private func reachStatus(for host: SSHHost) -> ReachStatus {
         guard let key = ReachabilityCache.cacheKey(for: host) else { return .unreachable }
         return reachCache.status(for: key) ?? .checking
+    }
+
+    private func apply() {
+        store.updateAll { host in
+            if selected.contains(host.id) {
+                host.zone = zone
+            } else if host.zone == zone {
+                host.zone = nil
+            }
+        }
+        dismiss()
     }
 }

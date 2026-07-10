@@ -35,6 +35,14 @@ struct SSHHost: Identifiable, Hashable {
     var localForwards: [PortForward]
     /// On-demand `-R` (reverse) forwards.
     var remoteForwards: [PortForward]
+    /// User-declared physical network grouping (e.g. "home", "work"), at most
+    /// one per host. Stored as `# sshCM-zone:` — see `SSHConfigParser.zoneMarker`.
+    var zone: String?
+    /// UI-only color tag. Stored as `# sshCM-tag:` — see `SSHConfigParser.tagMarker`.
+    var tag: HostTag?
+    /// Whether the user pinned this host to the top of the list. Stored as
+    /// `# sshCM-favorite:` — see `SSHConfigParser.favoriteMarker`.
+    var isFavorite: Bool
     var rawLines: [String]
 
     init(
@@ -53,6 +61,9 @@ struct SSHHost: Identifiable, Hashable {
         remoteApp: String? = nil,
         vncPort: Int? = nil,
         allowsSMB: Bool = false,
+        zone: String? = nil,
+        tag: HostTag? = nil,
+        isFavorite: Bool = false,
         rawLines: [String] = []
     ) {
         self.id = id
@@ -70,6 +81,9 @@ struct SSHHost: Identifiable, Hashable {
         self.remoteApp = remoteApp
         self.vncPort = vncPort
         self.allowsSMB = allowsSMB
+        self.zone = zone
+        self.tag = tag
+        self.isFavorite = isFavorite
         self.rawLines = rawLines
     }
 
@@ -121,6 +135,14 @@ struct SSHHost: Identifiable, Hashable {
         values.map(sanitizeAliasToken).filter { !$0.isEmpty }
     }
 
+    /// Restricts an imported zone value to the same character set as an alias
+    /// token (via `sanitizeAliasToken`); an empty result becomes `nil`.
+    static func sanitizeZone(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let sanitized = sanitizeAliasToken(value)
+        return sanitized.isEmpty ? nil : sanitized
+    }
+
     /// A copy safe to persist to `~/.ssh/config` from an imported document:
     /// alias/user tokens are reduced to permitted characters, and any
     /// command-executing directive smuggled into `rawLines` is removed. Used at
@@ -130,6 +152,7 @@ struct SSHHost: Identifiable, Hashable {
         copy.aliases = Self.sanitizeAliasTokens(aliases)
         copy.searchAliases = Self.sanitizeAliasTokens(searchAliases)
         copy.alternateUsers = Self.sanitizeAliasTokens(alternateUsers)
+        copy.zone = Self.sanitizeZone(zone)
         copy.rawLines = rawLines.filter { !Self.isDangerousImportedLine($0) }
         return copy
     }

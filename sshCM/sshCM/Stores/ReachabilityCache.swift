@@ -68,6 +68,21 @@ final class ReachabilityCache {
         epoch &+= 1
     }
 
+    /// Drops cached status only for `hosts`, bumping `epoch` so `.task(id:)`
+    /// restarts and re-probes them. Hosts outside a refresh's scope (e.g. a
+    /// zone filter) keep their last-known status instead of going back to
+    /// unknown — a full `clear()` would erase them even though they were
+    /// never touched by this refresh, only to force a surprise reprobe of
+    /// everything the moment the filter is lifted.
+    func invalidate(hosts: [SSHHost]) {
+        for host in hosts {
+            guard let key = Self.cacheKey(for: host) else { continue }
+            statuses.removeValue(forKey: key)
+            keyStatuses.removeValue(forKey: key)
+        }
+        epoch &+= 1
+    }
+
     static func probeTarget(for host: SSHHost) -> (target: String, port: Int)? {
         let candidates = [host.hostName, host.aliases.first]
         let target = candidates

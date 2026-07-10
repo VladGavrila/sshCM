@@ -112,4 +112,57 @@ struct ConfigFileTests {
         #expect(serialized.contains("User admin"))
         #expect(serialized.contains("Port 22"))
     }
+
+    @Test func zoneMarkerSerializesInStablePositionAfterOtherMarkers() {
+        var host = SSHHost(aliases: ["myserver"], hostName: "example.com")
+        host.allowsSMB = true
+        host.zone = "home"
+        var file = SSHConfigFile()
+        file.append(host: host)
+        let serialized = file.serialize()
+        let smbIdx = serialized.range(of: SSHConfigParser.smbMarker)!.lowerBound
+        let zoneIdx = serialized.range(of: SSHConfigParser.zoneMarker)!.lowerBound
+        let hostNameIdx = serialized.range(of: "HostName")!.lowerBound
+        #expect(smbIdx < zoneIdx)
+        #expect(zoneIdx < hostNameIdx)
+    }
+
+    @Test func updateHostZonePersistsThroughMutation() {
+        var file = SSHConfigFile()
+        var host = SSHHost(aliases: ["myserver"])
+        file.append(host: host)
+        host.zone = "aws"
+        file.update(host)
+        #expect(file.hosts[0].zone == "aws")
+        #expect(file.serialize().contains("# sshCM-zone: aws"))
+    }
+
+    // Simulates ConfigStore.updateAll's batched-rewrite loop (which itself lives
+    // in the app target and can't be SPM-tested): rename a zone across every
+    // member host, then serialize once.
+    @Test func renamingZoneAcrossMultipleHostsBatchesIntoOneSerialize() {
+        var file = SSHConfigFile()
+        var alpha = SSHHost(aliases: ["alpha"])
+        alpha.zone = "home"
+        var beta = SSHHost(aliases: ["beta"])
+        beta.zone = "home"
+        var gamma = SSHHost(aliases: ["gamma"])
+        gamma.zone = "work"
+        file.append(host: alpha)
+        file.append(host: beta)
+        file.append(host: gamma)
+
+        for host in file.hosts where host.zone == "home" {
+            var updated = host
+            updated.zone = "lab"
+            file.update(updated)
+        }
+
+        #expect(file.hosts.first { $0.aliases.first == "alpha" }?.zone == "lab")
+        #expect(file.hosts.first { $0.aliases.first == "beta" }?.zone == "lab")
+        #expect(file.hosts.first { $0.aliases.first == "gamma" }?.zone == "work")
+        let serialized = file.serialize()
+        #expect(serialized.contains("# sshCM-zone: work"))
+        #expect(!serialized.contains("# sshCM-zone: home"))
+    }
 }

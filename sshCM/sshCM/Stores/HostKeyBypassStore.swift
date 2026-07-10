@@ -2,9 +2,9 @@ import Foundation
 import Observation
 
 /// Tracks hosts (by primary alias) for which the user has opted to permanently
-/// bypass strict host-key checking. Stored in UserDefaults, mirroring
-/// `FavoritesStore`. This deliberately weakens security for the chosen hosts, so
-/// it is only ever set through the explicit remediation dialog.
+/// bypass strict host-key checking. Stored in UserDefaults. This deliberately
+/// weakens security for the chosen hosts, so it is only ever set through the
+/// explicit remediation dialog.
 @MainActor
 @Observable
 final class HostKeyBypassStore {

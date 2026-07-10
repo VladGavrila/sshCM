@@ -70,4 +70,21 @@ struct HostSearchScorerTests {
         let host = SSHHost(aliases: ["server"], port: 2222)
         #expect(HostSearchScorer.score(host: host, query: "2222") > 0)
     }
+
+    @Test func zoneMatchScoresAsOtherField() {
+        let host = SSHHost(aliases: ["server"], zone: "home")
+        #expect(HostSearchScorer.score(host: host, query: "home") == 10)
+    }
+
+    @Test func zoneMatchDoesNotOutrankAliasPrefix() {
+        let aliasPrefix = SSHHost(aliases: ["homer"])
+        let zoneOnly = SSHHost(aliases: ["server"], zone: "home")
+        #expect(HostSearchScorer.score(host: aliasPrefix, query: "home") >
+                HostSearchScorer.score(host: zoneOnly, query: "home"))
+    }
+
+    @Test func nilZoneHostUnaffected() {
+        let host = SSHHost(aliases: ["server"])
+        #expect(HostSearchScorer.score(host: host, query: "home") == 0)
+    }
 }

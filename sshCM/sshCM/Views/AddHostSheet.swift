@@ -6,6 +6,7 @@ struct AddHostSheet: View {
     @Environment(TagsStore.self) private var tagsStore
     @Environment(HostKeyBypassStore.self) private var bypassStore
     @Environment(RemoteAppsStore.self) private var remoteAppsStore
+    @Environment(ZonesStore.self) private var zonesStore
 
     @AppStorage(AppStorageKey.defaultMacOSVNCAppPath.rawValue) private var macOSVNCAppPath: String = VNCLauncher.defaultMacOSVNCAppPath
 
@@ -25,6 +26,7 @@ struct AddHostSheet: View {
     @State private var showForwarding: Bool
     @State private var tag: HostTag?
     @State private var showTagPicker: Bool = false
+    @State private var zone: String?
     @State private var hasBypass: Bool = false
     @State private var remoteAppName: String?
     @State private var vncPortText: String
@@ -72,6 +74,8 @@ struct AddHostSheet: View {
         _remoteAppName = State(initialValue: editing?.remoteApp)
         _vncPortText = State(initialValue: initialVNCPort)
         _allowsSMB = State(initialValue: editing?.allowsSMB ?? false)
+        _zone = State(initialValue: editing?.zone)
+        _tag = State(initialValue: editing?.tag)
     }
 
     private var portValue: Int? {
@@ -242,6 +246,14 @@ struct AddHostSheet: View {
                             }
                         tagButton
                     }
+                    if !zonesStore.zones.isEmpty {
+                        Picker("Zone", selection: $zone) {
+                            Text("None").tag(String?.none)
+                            ForEach(zonesStore.zones, id: \.self) { z in
+                                Text(z).tag(String?.some(z))
+                            }
+                        }
+                    }
                     if let message = aliasRejectionNotice ?? aliasError {
                         Text(message)
                             .font(.caption)
@@ -378,7 +390,6 @@ struct AddHostSheet: View {
         .frame(minWidth: 540, minHeight: 300)
         .animation(.easeInOut(duration: 0.25), value: showAdvanced)
         .onAppear {
-            loadExistingTag()
             hasBypass = editing?.aliases.first.map { bypassStore.isBypassed($0) } ?? false
         }
     }
@@ -531,11 +542,6 @@ struct AddHostSheet: View {
         }
     }
 
-    private func loadExistingTag() {
-        guard let alias = editing?.aliases.first, !alias.isEmpty else { return }
-        tag = tagsStore.tag(for: alias)
-    }
-
     private func save() {
         let primaryAlias = alias.trimmed
         guard !primaryAlias.isEmpty else { return }
@@ -579,9 +585,10 @@ struct AddHostSheet: View {
             updated.remoteApp = remoteAppName
             updated.vncPort = parsedVNCPort
             updated.allowsSMB = allowsSMB
+            updated.zone = zone
+            updated.tag = tag
             store.update(updated)
             if let oldAlias = original.aliases.first, oldAlias != primaryAlias {
-                tagsStore.remove(alias: oldAlias)
                 if bypassStore.isBypassed(oldAlias) {
                     bypassStore.setBypassed(false, for: oldAlias)
                     bypassStore.setBypassed(true, for: primaryAlias)
@@ -603,13 +610,14 @@ struct AddHostSheet: View {
                 remoteForwards: parsedRemoteForwards,
                 remoteApp: remoteAppName,
                 vncPort: parsedVNCPort,
-                allowsSMB: allowsSMB
+                allowsSMB: allowsSMB,
+                zone: zone,
+                tag: tag
             )
             store.add(host)
             savedHost = host
             isNew = true
         }
-        tagsStore.set(tag, for: primaryAlias)
         onSaved?(savedHost, isNew, addedAlternateUsers)
         dismiss()
     }

@@ -9,7 +9,6 @@ struct ImportHostsSheet: View {
 
     @Environment(ConfigStore.self) private var store
     @Environment(TagsStore.self) private var tagsStore
-    @Environment(FavoritesStore.self) private var favorites
     @Environment(ReachabilityCache.self) private var reachCache
     @Environment(\.dismiss) private var dismiss
 
@@ -319,11 +318,12 @@ struct ImportHostsSheet: View {
         advanceConflicts()
     }
 
-    /// Adds a brand-new host (fresh UUID) and applies its metadata. Publishing to
-    /// `/etc/hosts` is deferred — see `advanceConflicts()`.
+    /// Adds a brand-new host (fresh UUID). The imported color tag and favorite
+    /// flag travel on the host itself (`toSSHHost`), so there's no separate
+    /// metadata step. Publishing to `/etc/hosts` is deferred — see
+    /// `advanceConflicts()`.
     private func applyNew(_ host: ExportedHost) {
         store.add(host.toSSHHost().sanitizedForImport(), publish: false)
-        applyMetadata(host)
     }
 
     /// Overwrites the existing host that shares this primary alias, reusing its
@@ -336,14 +336,5 @@ struct ImportHostsSheet: View {
             return
         }
         store.update(host.toSSHHost(id: existing.id).sanitizedForImport(), publish: false)
-        applyMetadata(host)
-    }
-
-    private func applyMetadata(_ host: ExportedHost) {
-        guard let alias = storedAlias(host) else { return }
-        tagsStore.set(host.tag, for: alias)
-        if favorites.isFavorite(alias) != host.favorite {
-            favorites.toggle(alias)
-        }
     }
 }

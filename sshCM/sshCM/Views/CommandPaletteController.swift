@@ -3,6 +3,14 @@ import SwiftUI
 
 extension Notification.Name {
     static let palettePerformRefresh = Notification.Name("sshCM.palette.performRefresh")
+    /// Posted when the palette panel opens/closes so the main window can
+    /// disable menu shortcuts that collide with the palette's own key
+    /// bindings (⌘E/⌘I mean "edit"/"copy IP" there, not export/import) while
+    /// it's the one receiving keystrokes — an app-wide `.keyboardShortcut`
+    /// menu equivalent is matched before a panel's local `onKeyPress`, so
+    /// without this the main window's shortcut wins even though the palette
+    /// is what's focused.
+    static let paletteVisibilityChanged = Notification.Name("sshCM.palette.visibilityChanged")
 }
 
 @MainActor
@@ -13,9 +21,9 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
 
     struct Configuration {
         var store: ConfigStore
-        var favorites: FavoritesStore
         var tagsStore: TagsStore
         var reachCache: ReachabilityCache
+        var zonesStore: ZonesStore
         var onConnect: (SSHHost, String?) -> Void
         var onConnectForwarding: (SSHHost, String?, Bool, Bool) -> Void
         var onConnectVNC: (SSHHost) -> Void
@@ -49,6 +57,7 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         let panel = makePanel()
 
         let content = PalettePanelContent(
+            initialZone: currentActiveZone(configuration),
             onConnect: { [weak self] host, user in
                 self?.close()
                 configuration.onConnect(host, user)
@@ -84,7 +93,6 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
             }
         )
         .environment(configuration.store)
-        .environment(configuration.favorites)
         .environment(configuration.tagsStore)
         .environment(configuration.reachCache)
 
@@ -98,6 +106,7 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         centerOnActiveScreen(panel)
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+        postVisibilityChanged(true)
     }
 
     func close() {
@@ -111,6 +120,15 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         existing.contentView = nil
         existing.orderOut(nil)
         panel = nil
+        postVisibilityChanged(false)
+    }
+
+    private func postVisibilityChanged(_ visible: Bool) {
+        NotificationCenter.default.post(
+            name: .paletteVisibilityChanged,
+            object: nil,
+            userInfo: ["visible": visible]
+        )
     }
 
     private func makePanel() -> CommandPalettePanel {
@@ -134,6 +152,16 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         panel.delegate = self
         self.panel = panel
         return panel
+    }
+
+    /// The main window's selected zone filter, if it still names a declared
+    /// zone — mirrors `ContentView.activeZone`'s "" → nil / stale-zone → nil
+    /// fallback, since the palette reads `@AppStorage` directly rather than
+    /// sharing that view's state.
+    private func currentActiveZone(_ configuration: Configuration) -> String? {
+        let stored = UserDefaults.standard.string(forKey: AppStorageKey.selectedZone.rawValue) ?? ""
+        guard !stored.isEmpty, configuration.zonesStore.zones.contains(stored) else { return nil }
+        return stored
     }
 
     private func centerOnActiveScreen(_ window: NSWindow) {

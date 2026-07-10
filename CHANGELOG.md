@@ -2,6 +2,16 @@
 
 All notable changes to **sshCM** ("SSH Config Manager") are documented here, newest first. Each entry corresponds to a [GitHub release](https://github.com/VladGavrila/sshCM/releases).
 
+## [2.0.0] — 2026-07-09
+
+### Added
+- **Zones.** Group hosts by physical network location — `home`, `work`, `aws`, or whatever you name — and filter the host list down to just one. Unlike color tags, a zone is user-declared (nothing exists by default) and a host belongs to at most one at a time. Manage zones in a new **Settings → Zones** tab: add, rename, drag to reorder, or delete (deleting one clears the assignment from every member host, with a confirmation first). Assign a zone per-host from the Add/Edit sheet or a card/row's right-click menu, or in bulk via "Assign Hosts…" next to each zone in Settings. A toolbar dropdown next to "Show Only Reachable" filters the grid/list to one zone at a time, compounding with search and the reachability toggle; the selection persists across launches. With a zone selected, Refresh only re-probes that zone's hosts. Zones show as a small badge on cards and rows, and are searchable in both the main window and the Command Palette — opening the palette while a zone filter is active carries it over as a dismissible chip (Backspace clears it). The assignment is stored as a `# sshCM-zone: <name>` comment inside the host block, so it round-trips untouched and never affects plain `ssh`; a zone found in a hand-edited config or an imported JSON that isn't yet declared is auto-registered rather than dropped.
+- **Sync your config across machines.** A new **Settings → Advanced → Config File Location** section lets you point sshCM at a file in a synced folder (iCloud Drive, Dropbox, Syncthing, …); `~/.ssh/config` becomes a symlink to it, so `ssh`, sshCM, and every other machine read and write the same content while the sync service moves the bytes. Choosing a file with existing content adopts it (your local config is backed up first); choosing an empty location seeds it from your current config. Changes made on another machine are picked up automatically without needing to hit Refresh. A "Revert to Standard…" button turns the config back into a regular file, leaving the synced file untouched.
+
+### Changed
+- **Color tags and favorites now live in `~/.ssh/config`,** alongside zones, instead of in the app's private preferences. Each host's color tag and pinned-to-top star are written as `# sshCM-tag: <color>` / `# sshCM-favorite:` comments inside its `Host` block, so they round-trip untouched, never affect plain `ssh`, and travel with the config file (across machines, backups, or version control) rather than being stranded in `UserDefaults`. Existing tags and favorites are moved over automatically the first time you launch this version — nothing to do by hand. The marker always stores the tag's fixed color word (e.g. `green`), never your custom name for it — renaming a tag in Settings, or copying the config to another machine with different names, can't silently orphan a host's tag. **Settings → Host Tag Sort Order** now shows which raw color word each renamed tag maps to, and the tooltip/drag-preview reflect your custom name instead of always showing the default color name. (The tag palette's global order and custom names stay app preferences, since they aren't per-host.)
+- **Dropped Intel (x86_64) support.** sshCM now builds and ships as an Apple Silicon-only (arm64) app instead of a universal binary. This is a breaking change for anyone still running sshCM on an Intel Mac — that hardware is no longer supported.
+
 ## [1.16.1] — 2026-07-02
 
 ### Security
@@ -232,6 +242,7 @@ All notable changes to **sshCM** ("SSH Config Manager") are documented here, new
   - **Configure terminal** in Settings (defaults to Terminal.app).
 - Config handling preserves structure: atomic `0600` writes, `~/.ssh` created `0700` if missing, and comments, blank lines, global directives, `Include`/`Match` blocks, and unknown keys round-trip verbatim.
 
+[2.0.0]: https://github.com/VladGavrila/sshCM/releases/tag/v2.0.0
 [1.16.1]: https://github.com/VladGavrila/sshCM/releases/tag/v1.16.1
 [1.16.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.16.0
 [1.15.1]: https://github.com/VladGavrila/sshCM/releases/tag/v1.15.1

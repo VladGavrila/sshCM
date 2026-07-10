@@ -1,30 +1,21 @@
 import Foundation
 import Observation
 
+/// Owns the *global* tag catalog: the display order of the 7 colors and their
+/// optional custom names. Per-host tag *assignment* is not here — it lives on
+/// `SSHHost.tag` in `~/.ssh/config` (see `SSHConfigParser.tagMarker`).
 @MainActor
 @Observable
 final class TagsStore {
-    private(set) var tags: [String: HostTag]
     private(set) var tagOrder: [HostTag]
     private(set) var tagNames: [HostTag: String]
 
-    private let tagsKey  = AppStorageKey.hostTags.rawValue
     private let orderKey = AppStorageKey.hostTagOrder.rawValue
     private let namesKey = AppStorageKey.hostTagNames.rawValue
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-
-        var parsed: [String: HostTag] = [:]
-        if let raw = defaults.dictionary(forKey: tagsKey) as? [String: String] {
-            for (alias, value) in raw {
-                if let tag = HostTag(rawValue: value) {
-                    parsed[alias] = tag
-                }
-            }
-        }
-        self.tags = parsed
 
         if let stored = defaults.stringArray(forKey: orderKey) {
             var seen = Set<HostTag>()
@@ -108,32 +99,6 @@ final class TagsStore {
             tagNames[tag] = name
         }
         persistNames()
-    }
-
-    func tag(for alias: String) -> HostTag? {
-        guard !alias.isEmpty else { return nil }
-        return tags[alias]
-    }
-
-    func set(_ tag: HostTag?, for alias: String) {
-        guard !alias.isEmpty else { return }
-        if let tag {
-            tags[alias] = tag
-        } else {
-            tags.removeValue(forKey: alias)
-        }
-        persist()
-    }
-
-    func remove(alias: String) {
-        guard !alias.isEmpty, tags[alias] != nil else { return }
-        tags.removeValue(forKey: alias)
-        persist()
-    }
-
-    private func persist() {
-        let raw = tags.mapValues { $0.rawValue }
-        defaults.set(raw, forKey: tagsKey)
     }
 
     private func persistOrder() {

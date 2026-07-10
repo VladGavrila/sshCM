@@ -31,13 +31,14 @@ struct ExportedHost: Codable, Identifiable {
     var rawLines: [String]
     var tag: HostTag?
     var favorite: Bool
+    var zone: String?
 
     /// Excludes `id` so it is neither encoded nor required when decoding (it
     /// falls back to the `var id = UUID()` default on import).
     private enum CodingKeys: String, CodingKey {
         case aliases, searchAliases, hostName, user, port, identityFile
         case proxyJump, alternateUsers, localForwards, remoteForwards, rawLines
-        case tag, favorite
+        case tag, favorite, zone
     }
 
     /// The key under which tags/favorites/etc. are stored for this host.
@@ -56,7 +57,8 @@ struct ExportedHost: Codable, Identifiable {
         remoteForwards: [PortForward],
         rawLines: [String],
         tag: HostTag?,
-        favorite: Bool
+        favorite: Bool,
+        zone: String? = nil
     ) {
         self.aliases = aliases
         self.searchAliases = searchAliases
@@ -71,9 +73,10 @@ struct ExportedHost: Codable, Identifiable {
         self.rawLines = rawLines
         self.tag = tag
         self.favorite = favorite
+        self.zone = zone
     }
 
-    init(host: SSHHost, tag: HostTag?, favorite: Bool) {
+    init(host: SSHHost) {
         self.init(
             aliases: host.aliases,
             searchAliases: host.searchAliases,
@@ -86,8 +89,9 @@ struct ExportedHost: Codable, Identifiable {
             localForwards: host.localForwards,
             remoteForwards: host.remoteForwards,
             rawLines: host.rawLines,
-            tag: tag,
-            favorite: favorite
+            tag: host.tag,
+            favorite: host.isFavorite,
+            zone: host.zone
         )
     }
 
@@ -106,6 +110,9 @@ struct ExportedHost: Codable, Identifiable {
             alternateUsers: alternateUsers,
             localForwards: localForwards,
             remoteForwards: remoteForwards,
+            zone: zone,
+            tag: tag,
+            isFavorite: favorite,
             rawLines: rawLines
         )
     }

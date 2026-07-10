@@ -85,6 +85,33 @@ struct SSHConfigFile {
         }
     }
 
+    /// One-time migration of per-host color tags and favorite flags out of
+    /// `UserDefaults` (keyed by primary alias) and onto the hosts themselves,
+    /// where they now live as `# sshCM-tag:` / `# sshCM-favorite:` markers. The
+    /// impure parts — reading the old defaults, clearing them, and setting the
+    /// migration flag — belong to `TagFavoriteMigration`; this stays a pure,
+    /// testable transform. Returns `true` if any host changed.
+    @discardableResult
+    mutating func applyMigratedTagsFavorites(favorites: Set<String>, tags: [String: HostTag]) -> Bool {
+        var changed = false
+        blocks = blocks.map { block in
+            guard case .host(var h) = block, let alias = h.aliases.first, !alias.isEmpty else { return block }
+            var didChange = false
+            if favorites.contains(alias), !h.isFavorite {
+                h.isFavorite = true
+                didChange = true
+            }
+            if let tag = tags[alias], h.tag != tag {
+                h.tag = tag
+                didChange = true
+            }
+            guard didChange else { return block }
+            changed = true
+            return .host(h)
+        }
+        return changed
+    }
+
     private var endsWithBlankLine: Bool {
         guard let last = blocks.last else { return true }
         if case .raw(let s) = last, s.isEmpty { return true }
@@ -131,6 +158,15 @@ struct SSHConfigFile {
         }
         if h.allowsSMB {
             lines.append("    \(SSHConfigParser.smbMarker) yes")
+        }
+        if let zone = h.zone, !zone.isEmpty {
+            lines.append("    \(SSHConfigParser.zoneMarker) \(zone)")
+        }
+        if let tag = h.tag {
+            lines.append("    \(SSHConfigParser.tagMarker) \(tag.rawValue)")
+        }
+        if h.isFavorite {
+            lines.append("    \(SSHConfigParser.favoriteMarker) yes")
         }
         if let v = h.hostName, !v.isEmpty { lines.append(indented("HostName", v)) }
         if let v = h.user, !v.isEmpty { lines.append(indented("User", v)) }

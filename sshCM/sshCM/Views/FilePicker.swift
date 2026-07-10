@@ -43,4 +43,28 @@ enum FilePicker {
         panel.prompt = "Import"
         return panel.runModal() == .OK ? panel.url : nil
     }
+
+    /// Open panel for choosing a config-sync target: either an existing file
+    /// (adopt its content) or a folder (a new `ssh_config` file is created
+    /// inside it). `NSOpenPanel` can't name a file that doesn't exist yet, and
+    /// `NSSavePanel`'s "Replace?" prompt would falsely imply this overwrites
+    /// the synced file, when adoption is actually the opposite. Returns `nil`
+    /// if cancelled.
+    @MainActor
+    static func pickConfigSyncTarget() -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = true
+        panel.title = "Choose Synced Config File"
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+            return url.appendingPathComponent("ssh_config")
+        }
+        return url
+    }
 }

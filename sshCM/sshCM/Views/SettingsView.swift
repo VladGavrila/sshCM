@@ -11,6 +11,8 @@ struct SettingsView: View {
                 .tabItem { Label("Apps", systemImage: "app.badge") }
             TagsSettingsTab()
                 .tabItem { Label("Tags", systemImage: "tag") }
+            ZonesSettingsTab()
+                .tabItem { Label("Zones", systemImage: "globe") }
             UpdatesSettingsTab()
                 .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
             AdvancedSettingsTab()
@@ -55,7 +57,7 @@ enum SettingsWindowGuard {
     /// it from the active `Label`), so this is a precise way to recognize it —
     /// unlike "any non-main, non-palette key window," which also matches
     /// unrelated windows like `NSAlert` panels.
-    private static let knownTabTitles: Set<String> = ["General", "Apps", "Tags", "Advanced", "Updates"]
+    private static let knownTabTitles: Set<String> = ["General", "Apps", "Tags", "Zones", "Advanced", "Updates"]
 
     private static var didStart = false
     private static var isOpen = false
@@ -402,14 +404,25 @@ private struct TagsSettingsTab: View {
                 .overlay(
                     Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
                 )
-                .help(tag.displayName)
+                .help(tagsStore.displayName(for: tag))
             TextField(
-                tag.displayName,
+                tag.rawValue,
                 text: nameBinding(for: tag),
-                prompt: Text(tag.displayName)
+                prompt: Text(tag.rawValue)
             )
+            .labelsHidden()
             .textFieldStyle(.roundedBorder)
             .frame(maxWidth: 220)
+            // The color word is what's actually written to ~/.ssh/config (see
+            // SSHConfigParser.tagMarker) — stable across renames and portable
+            // across machines, unlike the freeform name above. Only shown once
+            // a custom name diverges from it; otherwise the two are identical
+            // and the caption would just be noise.
+            if tagsStore.customName(for: tag) != nil {
+                Text("config: \(tag.rawValue)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Spacer(minLength: 4)
         }
         .padding(.vertical, 2)
@@ -425,7 +438,7 @@ private struct TagsSettingsTab: View {
         .draggable(tag) {
             HStack(spacing: 6) {
                 Circle().fill(tag.color).frame(width: 14, height: 14)
-                Text(tag.displayName).font(.callout)
+                Text(tagsStore.displayName(for: tag)).font(.callout)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -445,6 +458,275 @@ private struct TagsSettingsTab: View {
     }
 }
 
+// MARK: - Zones
+
+private struct ZonesSettingsTab: View {
+    @Environment(ZonesStore.self) private var zonesStore
+    @Environment(ConfigStore.self) private var store
+
+    @AppStorage(AppStorageKey.selectedZone.rawValue) private var selectedZone: String = ""
+
+    @State private var newZoneName = ""
+    @State private var newZoneRejectionNotice: String?
+    @State private var suppressNewZoneFilter = false
+    @State private var dropTargetZone: String?
+    @State private var endDropTargeted = false
+    @State private var zonePendingDeletion: String?
+    @State private var assigningZone: String?
+
+    private static let zoneRejectionMessage =
+        "Spaces and special characters aren't allowed — use letters, digits, - . or _."
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(zonesStore.zones, id: \.self) { zone in
+                    zoneRow(zone)
+                }
+                endDropZone
+                addZoneRow
+            } header: {
+                Text("Zones")
+            } footer: {
+                Text("Group hosts by physical network — home, work, aws. Zones can filter the host list and scope reachability checks.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .sheet(isPresented: Binding(
+            get: { assigningZone != nil },
+            set: { if !$0 { assigningZone = nil } }
+        )) {
+            if let zone = assigningZone {
+                ZoneAssignSheet(zone: zone, hosts: store.file.hosts)
+            }
+        }
+        .confirmationDialog(
+            deletionTitle,
+            isPresented: Binding(
+                get: { zonePendingDeletion != nil },
+                set: { if !$0 { zonePendingDeletion = nil } }
+            ),
+            presenting: zonePendingDeletion
+        ) { zone in
+            Button("Remove \"\(zone)\"", role: .destructive) {
+                deleteZone(zone)
+            }
+            Button("Cancel", role: .cancel) {
+                zonePendingDeletion = nil
+            }
+        } message: { zone in
+            let count = memberCount(of: zone)
+            if count > 0 {
+                Text("\(count) host\(count == 1 ? "" : "s") will lose their zone assignment. ~/.ssh/config will be updated.")
+            } else {
+                Text("This zone has no members.")
+            }
+        }
+    }
+
+    private var deletionTitle: String {
+        guard let zone = zonePendingDeletion else { return "" }
+        return "Remove zone \"\(zone)\"?"
+    }
+
+    private func memberCount(of zone: String) -> Int {
+        store.file.hosts.filter { $0.zone == zone }.count
+    }
+
+    @ViewBuilder
+    private var addZoneRow: some View {
+        HStack {
+            TextField("Zone name", text: $newZoneName, prompt: Text("Zone name"))
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: newZoneName) { _, newValue in
+                    if suppressNewZoneFilter {
+                        suppressNewZoneFilter = false
+                        return
+                    }
+                    let sanitized = ZoneCatalog.sanitizeInput(newValue)
+                    if sanitized != newValue {
+                        suppressNewZoneFilter = true
+                        newZoneName = sanitized
+                        newZoneRejectionNotice = Self.zoneRejectionMessage
+                    } else {
+                        newZoneRejectionNotice = nil
+                    }
+                }
+                .onSubmit(addZone)
+            Button("Add Zone", action: addZone)
+                .disabled(!canAddZone)
+        }
+        if let notice = newZoneRejectionNotice {
+            Text(notice)
+                .font(.caption)
+                .foregroundStyle(.red)
+        } else if !newZoneName.isEmpty && !canAddZone {
+            Text("A zone with this name already exists.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var canAddZone: Bool {
+        guard let normalized = ZoneCatalog.normalized(newZoneName) else { return false }
+        return !ZoneCatalog.isDuplicate(normalized, in: zonesStore.zones)
+    }
+
+    private func addZone() {
+        guard canAddZone else { return }
+        zonesStore.add(newZoneName)
+        newZoneName = ""
+        newZoneRejectionNotice = nil
+    }
+
+    private func deleteZone(_ zone: String) {
+        store.updateAll { host in
+            if host.zone == zone { host.zone = nil }
+        }
+        zonesStore.remove(zone)
+        if selectedZone == zone {
+            selectedZone = ""
+        }
+        zonePendingDeletion = nil
+    }
+
+    private func rename(_ zone: String, to newName: String) {
+        guard let normalized = ZoneCatalog.normalized(newName), normalized != zone else { return }
+        guard !ZoneCatalog.isDuplicate(normalized, in: zonesStore.zones) else { return }
+        zonesStore.rename(zone, to: normalized)
+        store.updateAll { host in
+            if host.zone == zone { host.zone = normalized }
+        }
+        if selectedZone == zone {
+            selectedZone = normalized
+        }
+    }
+
+    private var endDropZone: some View {
+        Rectangle()
+            .fill(endDropTargeted ? Color.accentColor.opacity(0.25) : Color.clear)
+            .frame(height: 8)
+            .contentShape(Rectangle())
+            .dropDestination(for: String.self) { items, _ in
+                endDropTargeted = false
+                guard let source = items.first else { return false }
+                zonesStore.moveToEnd(zone: source)
+                return true
+            } isTargeted: { value in
+                endDropTargeted = value
+            }
+    }
+
+    @ViewBuilder
+    private func zoneRow(_ zone: String) -> some View {
+        ZoneRow(
+            zone: zone,
+            memberCount: memberCount(of: zone),
+            isDropTarget: dropTargetZone == zone,
+            onCommitRename: { rename(zone, to: $0) },
+            onAssign: { assigningZone = zone },
+            onDelete: {
+                if memberCount(of: zone) > 0 {
+                    zonePendingDeletion = zone
+                } else {
+                    deleteZone(zone)
+                }
+            }
+        )
+        .draggable(zone) {
+            Text(zone)
+                .font(.callout)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+        }
+        .dropDestination(for: String.self) { items, _ in
+            dropTargetZone = nil
+            guard let source = items.first else { return false }
+            zonesStore.move(zone: source, before: zone)
+            return true
+        } isTargeted: { isTargeted in
+            dropTargetZone = isTargeted ? zone : (dropTargetZone == zone ? nil : dropTargetZone)
+        }
+    }
+}
+
+/// A single zone's settings row. Rename commits on submit/focus-loss rather
+/// than per keystroke — unlike tag renames (UserDefaults-only), a zone rename
+/// rewrites every member host's marker line in `~/.ssh/config`, so a live
+/// per-character binding would hammer the file on every keystroke.
+private struct ZoneRow: View {
+    let zone: String
+    let memberCount: Int
+    let isDropTarget: Bool
+    let onCommitRename: (String) -> Void
+    let onAssign: () -> Void
+    let onDelete: () -> Void
+
+    @State private var draft: String = ""
+    @State private var suppressDraftFilter = false
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(.secondary)
+                .help("Drag to reorder")
+            TextField("Zone name", text: $draft, prompt: Text("Zone name"))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 200)
+                .focused($isFocused)
+                .onChange(of: draft) { _, newValue in
+                    if suppressDraftFilter {
+                        suppressDraftFilter = false
+                        return
+                    }
+                    let sanitized = ZoneCatalog.sanitizeInput(newValue)
+                    if sanitized != newValue {
+                        suppressDraftFilter = true
+                        draft = sanitized
+                    }
+                }
+                .onSubmit { commit() }
+                .onChange(of: isFocused) { wasFocused, nowFocused in
+                    if wasFocused && !nowFocused { commit() }
+                }
+            Button {
+                onAssign()
+            } label: {
+                Text(memberCount == 1 ? "Assign Hosts… (1 host)" : "Assign Hosts… (\(memberCount) hosts)")
+            }
+            Spacer(minLength: 4)
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "minus.circle.fill")
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.vertical, 2)
+        .overlay(alignment: .top) {
+            if isDropTarget {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+            }
+        }
+        .onAppear { draft = zone }
+        .onChange(of: zone) { _, newValue in draft = newValue }
+    }
+
+    private func commit() {
+        guard draft != zone else { return }
+        let normalized = ZoneCatalog.normalized(draft)
+        guard let normalized else {
+            draft = zone
+            return
+        }
+        onCommitRename(normalized)
+    }
+}
+
 // MARK: - Advanced
 
 private struct AdvancedSettingsTab: View {
@@ -456,8 +738,37 @@ private struct AdvancedSettingsTab: View {
     @State private var hostsFileAlert: String?
     @State private var discoveredPublicKeys: [URL] = []
 
+    @State private var linkedTarget: URL?
+    @State private var pendingSyncPlan: ConfigLocation.AdoptionPlan?
+    @State private var pendingSyncTarget: URL?
+    @State private var showAdoptConfirm = false
+    @State private var showSeedConfirm = false
+    @State private var showRevertConfirm = false
+    @State private var configLocationAlert: String?
+
     var body: some View {
         Form {
+            Section {
+                LabeledContent("Location") {
+                    Text(linkedTarget.map(displayPath) ?? "Standard (~/.ssh/config)")
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                HStack {
+                    Button("Choose Synced File…") { chooseSyncTarget() }
+                    if linkedTarget != nil {
+                        Button("Revert to Standard…") { showRevertConfirm = true }
+                    }
+                }
+            } header: {
+                Text("Config File Location")
+            } footer: {
+                Text("Point sshCM at a file inside a synced folder (iCloud Drive, Dropbox, Syncthing, …) and ~/.ssh/config becomes a symlink to it — ssh, sshCM, and every other machine read and write the same file, and the sync service moves the bytes. Your current config is backed up before switching. Changes made on another machine are picked up automatically.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section {
                 if discoveredPublicKeys.isEmpty {
                     Text("No public keys found in ~/.ssh.")
@@ -505,12 +816,129 @@ private struct AdvancedSettingsTab: View {
         } message: { message in
             Text(message)
         }
+        .alert(
+            "Couldn't Change Config Location",
+            isPresented: Binding(
+                get: { configLocationAlert != nil },
+                set: { if !$0 { configLocationAlert = nil } }
+            ),
+            presenting: configLocationAlert
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { message in
+            Text(message)
+        }
+        .confirmationDialog(
+            "Use the Synced File's Contents?",
+            isPresented: $showAdoptConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Continue") { commitSyncTarget() }
+            Button("Cancel", role: .cancel) { cancelPendingSync() }
+        } message: {
+            Text(adoptConfirmMessage())
+        }
+        .confirmationDialog(
+            "Move Your Config Into the Synced File?",
+            isPresented: $showSeedConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Continue") { commitSyncTarget() }
+            Button("Cancel", role: .cancel) { cancelPendingSync() }
+        } message: {
+            Text(seedConfirmMessage())
+        }
+        .confirmationDialog(
+            "Revert to a Standard Config File?",
+            isPresented: $showRevertConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Revert", role: .destructive) { revertSyncTarget() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("~/.ssh/config will become a regular file again, containing a copy of the synced content. The synced file itself is left untouched.")
+        }
         .onAppear {
             discoveredPublicKeys = PublicKeyDiscovery.discover()
             if !defaultPublicKeyPath.isEmpty,
                !discoveredPublicKeys.contains(where: { $0.path == defaultPublicKeyPath }) {
                 defaultPublicKeyPath = ""
             }
+            refreshLinkedTarget()
+        }
+    }
+
+    private func refreshLinkedTarget() {
+        linkedTarget = ConfigLocation.linkedTarget(configURL: store.configURL)
+    }
+
+    private func displayPath(_ url: URL) -> String {
+        url.path.replacingOccurrences(
+            of: FileManager.default.homeDirectoryForCurrentUser.path,
+            with: "~"
+        )
+    }
+
+    private func chooseSyncTarget() {
+        guard let chosen = FilePicker.pickConfigSyncTarget() else { return }
+        do {
+            let plan = try ConfigLocation.planAdoption(configURL: store.configURL, chosen: chosen)
+            pendingSyncPlan = plan
+            pendingSyncTarget = chosen
+            switch plan {
+            case .adoptTargetContent:
+                showAdoptConfirm = true
+            case .seedTargetFromLocal:
+                showSeedConfirm = true
+            }
+        } catch {
+            configLocationAlert = error.localizedDescription
+        }
+    }
+
+    private func adoptConfirmMessage() -> String {
+        guard case .adoptTargetContent(let backupURL) = pendingSyncPlan else { return "" }
+        if let backupURL {
+            return "The synced file's contents will be used. Your current config will be backed up to \(backupURL.lastPathComponent)."
+        }
+        return "The synced file's contents will be used."
+    }
+
+    private func seedConfirmMessage() -> String {
+        guard case .seedTargetFromLocal(let backupURL) = pendingSyncPlan else { return "" }
+        if let backupURL {
+            return "Your current config will be moved into the synced file, and backed up to \(backupURL.lastPathComponent)."
+        }
+        return "Your current config will be moved into the synced file."
+    }
+
+    private func commitSyncTarget() {
+        guard let plan = pendingSyncPlan, let target = pendingSyncTarget else { return }
+        defer {
+            pendingSyncPlan = nil
+            pendingSyncTarget = nil
+        }
+        do {
+            try ConfigLocation.execute(plan, configURL: store.configURL, target: target)
+            store.configLocationDidChange()
+            refreshLinkedTarget()
+        } catch {
+            configLocationAlert = error.localizedDescription
+        }
+    }
+
+    private func cancelPendingSync() {
+        pendingSyncPlan = nil
+        pendingSyncTarget = nil
+    }
+
+    private func revertSyncTarget() {
+        do {
+            try ConfigLocation.revert(configURL: store.configURL)
+            store.configLocationDidChange()
+            refreshLinkedTarget()
+        } catch {
+            configLocationAlert = error.localizedDescription
         }
     }
 

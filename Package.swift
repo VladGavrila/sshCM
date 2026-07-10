@@ -13,6 +13,7 @@ let package = Package(
             path: "sshCM/sshCM/Models",
             sources: [
                 "AppStorageKey.swift",
+                "HostTag.swift",
                 "SSHHost.swift",
                 "SSHConfigFile.swift",
                 "SSHConfigParser.swift",
@@ -20,14 +21,21 @@ let package = Package(
                 "HostListFilter.swift",
                 "HostSearchScorer.swift",
                 "HostsFileBlock.swift",
-                "RemoteAccessApp.swift"
+                "RemoteAccessApp.swift",
+                "ZoneCatalog.swift"
             ]
         ),
         .target(
             name: "sshCMUtilities",
             dependencies: ["sshCMModels"],
             path: "sshCM/sshCM/Utilities",
-            sources: ["SemanticVersion.swift", "UpdateInstalling.swift", "UpdateChecker.swift"]
+            sources: [
+                "SemanticVersion.swift",
+                "UpdateInstalling.swift",
+                "UpdateChecker.swift",
+                "ConfigLocation.swift",
+                "ConfigFileWatcher.swift"
+            ]
         ),
         .testTarget(
             name: "sshCMTests",

@@ -69,6 +69,21 @@ enum SSHConfigParser {
                 continue
             }
 
+            if currentHost != nil, let zone = parseZoneComment(trimmed) {
+                currentHost?.zone = zone
+                continue
+            }
+
+            if currentHost != nil, let tag = parseTagComment(trimmed) {
+                currentHost?.tag = tag
+                continue
+            }
+
+            if currentHost != nil, parseFavoriteComment(trimmed) {
+                currentHost?.isFavorite = true
+                continue
+            }
+
             if currentHost != nil, let port = parseVNCPortComment(trimmed) {
                 currentHost?.vncPort = port
                 continue
@@ -143,6 +158,9 @@ enum SSHConfigParser {
     static let remoteAppMarker = "# sshCM-remoteapp:"
     static let vncPortMarker = "# sshCM-vncport:"
     static let smbMarker = "# sshCM-smb:"
+    static let zoneMarker = "# sshCM-zone:"
+    static let tagMarker = "# sshCM-tag:"
+    static let favoriteMarker = "# sshCM-favorite:"
 
     private static func parseSearchAliasesComment(_ trimmed: String) -> [String]? {
         guard trimmed.lowercased().hasPrefix(searchAliasesMarker.lowercased()) else { return nil }
@@ -185,6 +203,26 @@ enum SSHConfigParser {
         guard trimmed.lowercased().hasPrefix(remoteAppMarker.lowercased()) else { return nil }
         let payload = trimmed.dropFirst(remoteAppMarker.count).trimmingCharacters(in: .whitespaces)
         return payload.isEmpty ? nil : payload
+    }
+
+    private static func parseZoneComment(_ trimmed: String) -> String? {
+        guard trimmed.lowercased().hasPrefix(zoneMarker.lowercased()) else { return nil }
+        let payload = trimmed.dropFirst(zoneMarker.count).trimmingCharacters(in: .whitespaces)
+        return payload.isEmpty ? nil : payload
+    }
+
+    /// Maps a `# sshCM-tag:` payload to a known `HostTag`. An unrecognized value
+    /// yields `nil` (treated as untagged) rather than being surfaced.
+    private static func parseTagComment(_ trimmed: String) -> HostTag? {
+        guard trimmed.lowercased().hasPrefix(tagMarker.lowercased()) else { return nil }
+        let payload = trimmed.dropFirst(tagMarker.count).trimmingCharacters(in: .whitespaces)
+        return HostTag(rawValue: payload.lowercased())
+    }
+
+    /// Favorite is a simple on/off flag, so any `# sshCM-favorite:` line (regardless
+    /// of payload) marks the host as favorited. `serializeHost` always writes `yes`.
+    private static func parseFavoriteComment(_ trimmed: String) -> Bool {
+        trimmed.lowercased().hasPrefix(favoriteMarker.lowercased())
     }
 
     private static func parseVNCPortComment(_ trimmed: String) -> Int? {

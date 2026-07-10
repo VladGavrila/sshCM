@@ -19,13 +19,13 @@ struct ImportSession: Identifiable {
 
 struct ContentView: View {
     @Environment(ConfigStore.self) private var store
-    @Environment(FavoritesStore.self) private var favorites
     @Environment(TagsStore.self) private var tagsStore
     @Environment(ReachabilityCache.self) private var reachCache
     @Environment(HostKeyBypassStore.self) private var bypassStore
     @Environment(UpdateChecker.self) private var updater
     @Environment(PaletteBridge.self) private var paletteBridge
     @Environment(RemoteAppsStore.self) private var remoteAppsStore
+    @Environment(ZonesStore.self) private var zonesStore
 
     @AppStorage(AppStorageKey.defaultTerminalAppPath.rawValue) private var terminalAppPath: String = TerminalLauncher.defaultTerminalAppPath
     @AppStorage(AppStorageKey.defaultMacOSVNCAppPath.rawValue) private var macOSVNCAppPath: String = VNCLauncher.defaultMacOSVNCAppPath
@@ -49,15 +49,95 @@ struct ContentView: View {
     @State private var typeAheadMonitor: Any?
     @AppStorage(AppStorageKey.hostsViewMode.rawValue) private var viewModeRaw: String = HostsViewMode.card.rawValue
     @AppStorage(AppStorageKey.showOnlyReachable.rawValue) private var showOnlyReachable: Bool = false
+    @AppStorage(AppStorageKey.selectedZone.rawValue) private var selectedZone: String = ""
     @State private var showingExport = false
     @State private var importSession: ImportSession?
     @State private var importError: String?
+    /// While the command palette is open, ⌘E/⌘I there mean "edit"/"copy IP" —
+    /// disable the main window's Export/Import shortcuts so the app's menu
+    /// key-equivalent matching (which wins over the palette panel's own
+    /// key handling) doesn't steal the keystroke.
+    @State private var paletteVisible = false
 
     private var viewMode: HostsViewMode {
         HostsViewMode(rawValue: viewModeRaw) ?? .card
     }
 
+    /// Translates the `@AppStorage` `""` sentinel to `nil` (All Zones), and also
+    /// falls back to `nil` when the stored value no longer names a declared zone
+    /// (e.g. it was deleted in Settings) — the only place this translation happens.
+    private var activeZone: String? {
+        guard !selectedZone.isEmpty, zonesStore.zones.contains(selectedZone) else { return nil }
+        return selectedZone
+    }
+
     var body: some View {
+        let withSheets = sheetedView
+        return withSheets
+            .onChange(of: stateMarker) { _, _ in
+                syncPresentedRelease()
+            }
+            .onAppear {
+                syncPresentedRelease()
+                drainPaletteBridge()
+                let open = openWindow
+                MainWindowOpener.open = { open(id: "main") }
+                let openSettingsAction = openSettings
+                SettingsOpener.open = { openSettingsAction() }
+                let checker = updater
+                UpdateCheckTrigger.trigger = {
+                    Task { await checker.check(userInitiated: true) }
+                }
+                installTypeAheadMonitor()
+                DispatchQueue.main.async { MainWindowCloseGuard.installOnMainWindows() }
+                reconcileZones(hosts: store.file.hosts)
+            }
+            .onDisappear { removeTypeAheadMonitor() }
+            .task(id: probeFleetKey) {
+                let snapshot = probeTargets
+                // Structured children of this task, not detached `Task {}`s —
+                // when `probeFleetKey` changes (zone switch, refresh), SwiftUI
+                // cancels this task and that cancellation now actually reaches
+                // every in-flight probe, so a stale round can't outlive the
+                // zone/epoch it started under and write results for hosts no
+                // longer in scope.
+                await withTaskGroup(of: Void.self) { group in
+                    for host in snapshot {
+                        group.addTask { await reachCache.runProbe(for: host) }
+                    }
+                }
+            }
+            .onChange(of: store.file.hosts) { _, hosts in
+                reconcileZones(hosts: hosts)
+            }
+            .onChange(of: paletteBridge.pendingEdit) { _, newValue in
+                guard let host = newValue else { return }
+                hostBeingEdited = host
+                paletteBridge.pendingEdit = nil
+            }
+            .onChange(of: paletteBridge.pendingDelete) { _, newValue in
+                guard let host = newValue else { return }
+                hostPendingDeletion = host
+                paletteBridge.pendingDelete = nil
+            }
+            .onChange(of: paletteBridge.pendingAdd) { _, newValue in
+                guard newValue else { return }
+                showingAdd = true
+                paletteBridge.pendingAdd = false
+            }
+            .onChange(of: paletteBridge.pendingKeyWarning) { _, newValue in
+                guard let warning = newValue else { return }
+                hostKeyWarning = warning
+                paletteBridge.pendingKeyWarning = nil
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .paletteVisibilityChanged)) { note in
+                paletteVisible = note.userInfo?["visible"] as? Bool ?? false
+            }
+    }
+
+    /// Split out of `body` — chaining every sheet/alert/dialog and every
+    /// lifecycle handler in one expression made the type checker time out.
+    private var sheetedView: some View {
         baseView
             .sheet(isPresented: $showingAdd) {
                 AddHostSheet(onSaved: { host, isNew, added in
@@ -65,6 +145,7 @@ struct ContentView: View {
                 })
                 .environment(store)
                 .environment(tagsStore)
+                .environment(zonesStore)
             }
             .sheet(item: $currentSeedRequest, onDismiss: dequeueNextSeed) { request in
                 SeedKeySheet(host: request.host, userOverride: request.userOverride)
@@ -72,14 +153,12 @@ struct ContentView: View {
             .sheet(isPresented: $showingExport) {
                 ExportHostsSheet(hosts: store.file.hosts)
                     .environment(tagsStore)
-                    .environment(favorites)
                     .environment(reachCache)
             }
             .sheet(item: $importSession) { session in
                 ImportHostsSheet(document: session.document)
                     .environment(store)
                     .environment(tagsStore)
-                    .environment(favorites)
                     .environment(reachCache)
             }
             .alert(
@@ -97,6 +176,7 @@ struct ContentView: View {
                 })
                     .environment(store)
                     .environment(tagsStore)
+                    .environment(zonesStore)
             }
             .confirmationDialog(
                 confirmationTitle,
@@ -104,9 +184,6 @@ struct ContentView: View {
                 presenting: hostPendingDeletion
             ) { host in
                 Button("Remove \"\(host.title)\"", role: .destructive) {
-                    if let alias = host.aliases.first {
-                        tagsStore.remove(alias: alias)
-                    }
                     store.remove(id: host.id)
                     hostPendingDeletion = nil
                 }
@@ -171,50 +248,6 @@ struct ContentView: View {
                 if case .error(let msg) = updater.state {
                     Text(msg)
                 }
-            }
-            .onChange(of: stateMarker) { _, _ in
-                syncPresentedRelease()
-            }
-            .onAppear {
-                syncPresentedRelease()
-                drainPaletteBridge()
-                let open = openWindow
-                MainWindowOpener.open = { open(id: "main") }
-                let openSettingsAction = openSettings
-                SettingsOpener.open = { openSettingsAction() }
-                let checker = updater
-                UpdateCheckTrigger.trigger = {
-                    Task { await checker.check(userInitiated: true) }
-                }
-                installTypeAheadMonitor()
-                DispatchQueue.main.async { MainWindowCloseGuard.installOnMainWindows() }
-            }
-            .onDisappear { removeTypeAheadMonitor() }
-            .task(id: probeFleetKey) {
-                let snapshot = store.file.hosts
-                for host in snapshot {
-                    Task { await reachCache.runProbe(for: host) }
-                }
-            }
-            .onChange(of: paletteBridge.pendingEdit) { _, newValue in
-                guard let host = newValue else { return }
-                hostBeingEdited = host
-                paletteBridge.pendingEdit = nil
-            }
-            .onChange(of: paletteBridge.pendingDelete) { _, newValue in
-                guard let host = newValue else { return }
-                hostPendingDeletion = host
-                paletteBridge.pendingDelete = nil
-            }
-            .onChange(of: paletteBridge.pendingAdd) { _, newValue in
-                guard newValue else { return }
-                showingAdd = true
-                paletteBridge.pendingAdd = false
-            }
-            .onChange(of: paletteBridge.pendingKeyWarning) { _, newValue in
-                guard let warning = newValue else { return }
-                hostKeyWarning = warning
-                paletteBridge.pendingKeyWarning = nil
             }
     }
 
@@ -308,12 +341,37 @@ struct ContentView: View {
         !Set(host.aliases).isDisjoint(with: jumpHostAliases)
     }
 
+    /// Hosts eligible for probing: the whole fleet, or only the selected
+    /// zone's members while a zone filter is active — no point generating
+    /// TCP probes for hosts the user has filtered out of sight.
+    private var probeTargets: [SSHHost] {
+        guard let zone = activeZone else { return store.file.hosts }
+        return store.file.hosts.filter { $0.zone == zone }
+    }
+
     private var probeFleetKey: String {
-        let keys = store.file.hosts
+        let keys = probeTargets
             .compactMap { ReachabilityCache.cacheKey(for: $0) }
             .sorted()
             .joined(separator: ",")
-        return "\(reachCache.epoch)|\(keys)"
+        return "\(reachCache.epoch)|\(activeZone ?? "")|\(keys)"
+    }
+
+    private func reconcileZones(hosts: [SSHHost]) {
+        zonesStore.reconcile(withHostZones: hosts.compactMap(\.zone))
+    }
+
+    private func setZone(_ zone: String?, for host: SSHHost) {
+        var updated = host
+        updated.zone = zone
+        store.update(updated)
+    }
+
+    private func toggleFavorite(_ host: SSHHost) {
+        guard host.aliases.first.map({ !$0.isEmpty }) ?? false else { return }
+        var updated = host
+        updated.isFavorite.toggle()
+        store.update(updated)
     }
 
     private func drainPaletteBridge() {
@@ -383,6 +441,36 @@ struct ContentView: View {
                     .tint(showOnlyReachable ? .green : nil)
                     .help(showOnlyReachable ? "Show all hosts" : "Show only reachable hosts")
 
+                    if !zonesStore.zones.isEmpty {
+                        Menu {
+                            Button {
+                                selectedZone = ""
+                            } label: {
+                                if activeZone == nil {
+                                    Label("All Zones", systemImage: "checkmark")
+                                } else {
+                                    Text("All Zones")
+                                }
+                            }
+                            Divider()
+                            ForEach(zonesStore.zones, id: \.self) { zone in
+                                Button {
+                                    selectedZone = zone
+                                } label: {
+                                    if activeZone == zone {
+                                        Label(zone, systemImage: "checkmark")
+                                    } else {
+                                        Text(zone)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label(activeZone ?? "Zone", systemImage: "globe")
+                        }
+                        .tint(activeZone != nil ? .green : nil)
+                        .help(activeZone.map { "Filtering to zone \"\($0)\"" } ?? "Filter hosts by zone")
+                    }
+
                     Button {
                         viewModeRaw = (viewMode == .card ? HostsViewMode.list : .card).rawValue
                     } label: {
@@ -394,7 +482,7 @@ struct ContentView: View {
                     .help(viewMode == .card ? "Switch to list view" : "Switch to grid view")
 
                     Button {
-                        reachCache.clear()
+                        reachCache.invalidate(hosts: probeTargets)
                         store.load()
                     } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
@@ -408,13 +496,14 @@ struct ContentView: View {
                             Label("Export Hosts…", systemImage: "arrowshape.up.circle")
                         }
                         .keyboardShortcut("e", modifiers: .command)
-                        .disabled(store.file.hosts.isEmpty)
+                        .disabled(store.file.hosts.isEmpty || paletteVisible)
                         Button {
                             beginImport()
                         } label: {
                             Label("Import Hosts…", systemImage: "arrowshape.down.circle")
                         }
                         .keyboardShortcut("i", modifiers: .command)
+                        .disabled(paletteVisible)
                     } label: {
                         Label("Import or Export", systemImage: "square.and.arrow.up.on.square")
                     }
@@ -607,16 +696,11 @@ struct ContentView: View {
 
     private var sortedHosts: [SSHHost] {
         let untaggedRank = HostTag.allCases.count
-        return HostListFilter(searchText: searchText, showOnlyReachable: showOnlyReachable)
+        return HostListFilter(searchText: searchText, showOnlyReachable: showOnlyReachable, zone: activeZone)
             .apply(
                 hosts: store.file.hosts,
-                isFavorite: { favorites.isFavorite($0) },
-                tagRank: { alias in
-                    tagsStore.tag(for: alias).map { tagsStore.rank(for: $0) } ?? untaggedRank
-                },
-                tagName: { alias in
-                    tagsStore.tag(for: alias).map { tagsStore.displayName(for: $0) }
-                },
+                tagRank: { tag in tag.map { tagsStore.rank(for: $0) } ?? untaggedRank },
+                tagName: { tag in tag.map { tagsStore.displayName(for: $0) } },
                 isReachable: { host in
                     guard let key = ReachabilityCache.cacheKey(for: host) else { return false }
                     return reachCache.status(for: key) == .reachable
@@ -635,7 +719,7 @@ struct ContentView: View {
     /// Identity for the grid/list, so it rebuilds (and scrolls to top) whenever
     /// the view mode or active filters change.
     private var listIdentity: String {
-        "\(viewModeRaw)|\(showOnlyReachable)|\(searchText)"
+        "\(viewModeRaw)|\(showOnlyReachable)|\(selectedZone)|\(searchText)"
     }
 
     private var hostGrid: some View {
@@ -656,7 +740,9 @@ struct ContentView: View {
                                 connectForwarding(to: host, includeLocal: local, includeRemote: remote)
                             },
                             onConnectVNC: { connectVNC(to: host) },
-                            onConnectSMB: { connectSMB(to: host) }
+                            onConnectSMB: { connectSMB(to: host) },
+                            onSetZone: { setZone($0, for: host) },
+                            onToggleFavorite: { toggleFavorite(host) }
                         )
                     }
                 }
@@ -679,7 +765,9 @@ struct ContentView: View {
                         connectForwarding(to: host, includeLocal: local, includeRemote: remote)
                     },
                     onConnectVNC: { connectVNC(to: host) },
-                    onConnectSMB: { connectSMB(to: host) }
+                    onConnectSMB: { connectSMB(to: host) },
+                    onSetZone: { setZone($0, for: host) },
+                    onToggleFavorite: { toggleFavorite(host) }
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.visible)
@@ -727,15 +815,16 @@ struct ContentView: View {
 
     private var noMatchesDetail: String {
         let query = searchText.trimmingCharacters(in: .whitespaces)
+        let zoneClause = activeZone.map { " in '\($0)'" } ?? ""
         switch (query.isEmpty, showOnlyReachable) {
         case (false, true):
-            return "No reachable hosts match \"\(query)\"."
+            return "No reachable hosts\(zoneClause) match \"\(query)\"."
         case (false, false):
-            return "No hosts match \"\(query)\"."
+            return "No hosts\(zoneClause) match \"\(query)\"."
         case (true, true):
-            return "No hosts are currently reachable."
+            return "No hosts\(zoneClause) are currently reachable."
         case (true, false):
-            return "No matching hosts."
+            return activeZone == nil ? "No matching hosts." : "No hosts\(zoneClause)."
         }
     }
 }

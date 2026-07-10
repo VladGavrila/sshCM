@@ -4,13 +4,23 @@ import Foundation
 /// Using typed enum cases instead of scattered string literals prevents typos
 /// from silently creating separate, always-empty keys and losing persisted data.
 enum AppStorageKey: String, CaseIterable {
-    // MARK: - FavoritesStore
+    // MARK: - Favorites (legacy)
+    /// Legacy. Per-host favorite flags now live in `~/.ssh/config` as
+    /// `# sshCM-favorite:` markers. Read only for the one-time migration in
+    /// `TagFavoriteMigration`, then removed.
     case favoriteAliases
 
     // MARK: - TagsStore
+    /// Legacy. Per-host color tags now live in `~/.ssh/config` as `# sshCM-tag:`
+    /// markers. Read only for the one-time migration in `TagFavoriteMigration`,
+    /// then removed. (`hostTagOrder` / `hostTagNames` are global catalog state
+    /// and remain owned by `TagsStore`.)
     case hostTags
     case hostTagOrder
     case hostTagNames
+    /// Set once `favoriteAliases` / `hostTags` have been migrated into the config
+    /// file, so the migration never re-runs.
+    case migratedTagsFavoritesToConfig
 
     // MARK: - HostKeyBypassStore
     case hostKeyBypassAliases
@@ -42,4 +52,8 @@ enum AppStorageKey: String, CaseIterable {
 
     // MARK: - RemoteAppsStore
     case remoteAccessApps
+
+    // MARK: - ZonesStore
+    case zones
+    case selectedZone
 }

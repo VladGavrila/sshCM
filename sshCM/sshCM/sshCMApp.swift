@@ -107,11 +107,11 @@ final class MainWindowCloseGuard: NSObject, NSWindowDelegate {
 struct sshCMApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var store = ConfigStore()
-    @State private var favorites = FavoritesStore()
     @State private var tags = TagsStore()
     @State private var reachCache = ReachabilityCache()
     @State private var bypassStore = HostKeyBypassStore()
     @State private var remoteAppsStore = RemoteAppsStore()
+    @State private var zonesStore = ZonesStore()
     @State private var updater = UpdateChecker(installer: LiveUpdateInstaller())
     @State private var paletteBridge = PaletteBridge()
     @State private var hotKey = GlobalHotKey()
@@ -136,15 +136,17 @@ struct sshCMApp: App {
         WindowGroup(id: "main") {
             ContentView()
                 .environment(store)
-                .environment(favorites)
                 .environment(tags)
                 .environment(reachCache)
                 .environment(bypassStore)
                 .environment(updater)
                 .environment(paletteBridge)
                 .environment(remoteAppsStore)
+                .environment(zonesStore)
                 .onAppear {
                     store.load()
+                    store.startWatching()
+                    TagFavoriteMigration.runIfNeeded(store: store)
                     configurePalette()
                     hotKey.onTrigger = {
                         CommandPaletteController.shared.toggle()
@@ -183,7 +185,7 @@ struct sshCMApp: App {
                     if CommandPaletteController.shared.isPaletteVisible {
                         NotificationCenter.default.post(name: .palettePerformRefresh, object: nil)
                     } else {
-                        reachCache.clear()
+                        reachCache.invalidate(hosts: activeZoneScopedHosts())
                         store.load()
                     }
                 }
@@ -197,6 +199,8 @@ struct sshCMApp: App {
                 .environment(updater)
                 .environment(tags)
                 .environment(remoteAppsStore)
+                .environment(zonesStore)
+                .environment(reachCache)
         }
     }
 
@@ -204,9 +208,9 @@ struct sshCMApp: App {
         let bridge = paletteBridge
         CommandPaletteController.shared.configure(.init(
             store: store,
-            favorites: favorites,
             tagsStore: tags,
             reachCache: reachCache,
+            zonesStore: zonesStore,
             onConnect: { [reachCache, bypassStore] host, user in
                 let path = UserDefaults.standard.string(forKey: "defaultTerminalAppPath")
                     ?? TerminalLauncher.defaultTerminalAppPath
@@ -311,6 +315,16 @@ struct sshCMApp: App {
     @MainActor
     private static func surfaceMainWindow() {
         MainWindowCloseGuard.surfaceMainWindow()
+    }
+
+    /// Mirrors `ContentView.activeZone` + `probeTargets`: the global ⌘R menu
+    /// command lives outside ContentView's environment, so it re-derives the
+    /// same "" / stale-zone → nil fallback from `@AppStorage` directly rather
+    /// than sharing that view's private state.
+    private func activeZoneScopedHosts() -> [SSHHost] {
+        let stored = UserDefaults.standard.string(forKey: AppStorageKey.selectedZone.rawValue) ?? ""
+        guard !stored.isEmpty, zonesStore.zones.contains(stored) else { return store.file.hosts }
+        return store.file.hosts.filter { $0.zone == stored }
     }
 
     private func applyHotKey() {

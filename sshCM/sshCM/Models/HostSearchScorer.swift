@@ -10,7 +10,7 @@ import Foundation
 ///    400+ search alias prefix  (bonus for shorter excess)
 ///    100  primary alias contains query
 ///     80  search alias contains query
-///     10  any other field (title, hostName, user, identityFile, proxyJump, port, tagName)
+///     10  any other field (title, hostName, user, identityFile, proxyJump, port, tagName, zone)
 ///      0  no match
 enum HostSearchScorer {
     /// - Parameters:
@@ -36,7 +36,7 @@ enum HostSearchScorer {
 
         let others: [String?] = [
             host.title, host.hostName, host.user, host.identityFile, host.proxyJump,
-            host.port.map(String.init), tagName
+            host.port.map(String.init), tagName, host.zone
         ]
         for value in others.compactMap({ $0?.lowercased() }) where !value.isEmpty {
             if value.contains(q) { return 10 }

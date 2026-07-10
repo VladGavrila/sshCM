@@ -4,21 +4,10 @@ import Foundation
 /// portable JSON document and back. UI lives in `ExportHostsSheet` /
 /// `ImportHostsSheet`; this namespace only does the model<->bytes conversion.
 enum HostPortability {
-    /// Builds an export document for `hosts`, pulling each host's color tag and
-    /// favorite flag from the stores (keyed by primary alias, matching how the
-    /// rest of the app keys per-host metadata).
-    @MainActor
-    static func makeDocument(
-        hosts: [SSHHost],
-        tagsStore: TagsStore,
-        favorites: FavoritesStore
-    ) -> HostExportDocument {
-        let exported = hosts.map { host -> ExportedHost in
-            let alias = host.aliases.first
-            let tag = alias.flatMap { tagsStore.tag(for: $0) }
-            let favorite = alias.map { favorites.isFavorite($0) } ?? false
-            return ExportedHost(host: host, tag: tag, favorite: favorite)
-        }
+    /// Builds an export document for `hosts`. The color tag and favorite flag
+    /// travel on the host itself (`SSHHost.tag` / `.isFavorite`).
+    static func makeDocument(hosts: [SSHHost]) -> HostExportDocument {
+        let exported = hosts.map { ExportedHost(host: $0) }
         return HostExportDocument(exportedAt: Date(), hosts: exported)
     }
 

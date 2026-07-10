@@ -11,17 +11,31 @@ struct HostRowView: View {
     let onConnectForwarding: (Bool, Bool) -> Void
     let onConnectVNC: () -> Void
     let onConnectSMB: () -> Void
+    let onSetZone: (String?) -> Void
+    let onToggleFavorite: () -> Void
 
-    @Environment(FavoritesStore.self) private var favorites
-    @Environment(TagsStore.self) private var tagsStore
     @Environment(ReachabilityCache.self) private var reachCache
     @Environment(HostKeyBypassStore.self) private var bypassStore
+    @Environment(ZonesStore.self) private var zonesStore
 
-    private var reachStatus: ReachStatus {
+    /// `nil` means "not currently in scope to be probed" (e.g. a zone filter
+    /// is active and this host is outside it) — distinct from `.checking`,
+    /// which means a probe is actually in flight. Falling back to `.checking`
+    /// here would make every host look like it's being reprobed on refresh.
+    private var reachStatus: ReachStatus? {
         guard let cacheKey = ReachabilityCache.cacheKey(for: host) else {
             return .unreachable
         }
-        return reachCache.status(for: cacheKey) ?? .checking
+        return reachCache.status(for: cacheKey)
+    }
+
+    @ViewBuilder
+    private var reachIndicator: some View {
+        if let reachStatus {
+            ReachabilityDot(status: reachStatus)
+        } else {
+            Color.clear.frame(width: 10, height: 10)
+        }
     }
 
     private var hostKeyChanged: Bool {
@@ -32,17 +46,15 @@ struct HostRowView: View {
         host.aliases.first.map { bypassStore.isBypassed($0) } ?? false
     }
 
-    private var favoriteAlias: String? {
-        host.aliases.first.flatMap { $0.isEmpty ? nil : $0 }
+    /// A host must have a primary alias to be favoritable — that's how it's
+    /// addressed everywhere else — so the star is disabled without one.
+    private var canFavorite: Bool {
+        host.aliases.first.map { !$0.isEmpty } ?? false
     }
 
-    private var isFavorite: Bool {
-        favoriteAlias.map { favorites.isFavorite($0) } ?? false
-    }
+    private var isFavorite: Bool { host.isFavorite }
 
-    private var hostTag: HostTag? {
-        favoriteAlias.flatMap { tagsStore.tag(for: $0) }
-    }
+    private var hostTag: HostTag? { host.tag }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -50,7 +62,7 @@ struct HostRowView: View {
                 .fill(hostTag?.color ?? Color.clear)
                 .frame(width: 3, height: 22)
 
-            ReachabilityDot(status: reachStatus)
+            reachIndicator
 
             favoriteButton
 
@@ -116,6 +128,10 @@ struct HostRowView: View {
                         .foregroundStyle(.orange)
                         .help("Host key checking is bypassed for this host")
                 }
+
+                if let zone = host.zone {
+                    zoneBadge(zone)
+                }
             }
 
             HStack(spacing: 6) {
@@ -153,6 +169,54 @@ struct HostRowView: View {
         .padding(.vertical, 7)
         .padding(.horizontal, 14)
         .contentShape(Rectangle())
+        .contextMenu {
+            Button(action: onEdit) {
+                Label("Edit", systemImage: "pencil")
+            }
+            Button(role: .destructive, action: onDelete) {
+                Label("Remove", systemImage: "trash")
+            }
+            if !zonesStore.zones.isEmpty {
+                Divider()
+                zoneMenu
+            }
+        }
+    }
+
+    private func zoneBadge(_ zone: String) -> some View {
+        Text(zone)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(.quaternary, in: Capsule())
+    }
+
+    @ViewBuilder
+    private var zoneMenu: some View {
+        Menu("Zone") {
+            Button {
+                onSetZone(nil)
+            } label: {
+                if host.zone == nil {
+                    Label("No Zone", systemImage: "checkmark")
+                } else {
+                    Text("No Zone")
+                }
+            }
+            Divider()
+            ForEach(zonesStore.zones, id: \.self) { zone in
+                Button {
+                    onSetZone(zone)
+                } label: {
+                    if host.zone == zone {
+                        Label(zone, systemImage: "checkmark")
+                    } else {
+                        Text(zone)
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -233,17 +297,13 @@ struct HostRowView: View {
     }
 
     private var favoriteButton: some View {
-        Button {
-            if let alias = favoriteAlias {
-                favorites.toggle(alias)
-            }
-        } label: {
+        Button(action: onToggleFavorite) {
             Image(systemName: isFavorite ? "star.fill" : "star")
                 .foregroundStyle(isFavorite ? Color.yellow : Color.secondary)
                 .frame(width: 14, height: 14)
         }
         .buttonStyle(.borderless)
-        .disabled(favoriteAlias == nil)
+        .disabled(!canFavorite)
         .help(isFavorite ? "Unpin from top" : "Pin to top")
     }
 }
