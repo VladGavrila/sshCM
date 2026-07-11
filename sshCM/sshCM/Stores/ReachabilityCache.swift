@@ -33,11 +33,27 @@ enum HostKeyState: Equatable {
     }
 }
 
+/// Whether a host would let you in on key authentication alone, per
+/// `KeyAuthChecker`. `.needsSetup` is the only state the UI acts on (it shows
+/// the "Set Up Key Authentication" affordance); `.checking`/`.unchecked` stay
+/// silent so the icon doesn't flash in before the check completes.
+enum KeyAuthState: Equatable {
+    case unchecked, checking, passwordless, needsSetup
+}
+
 @MainActor
 @Observable
 final class ReachabilityCache {
     private var statuses: [String: ReachStatus] = [:]
     private var keyStatuses: [String: HostKeyState] = [:]
+    /// Deliberately a separate dict from `statuses`/`keyStatuses`: those are
+    /// cleared by `clear()`/`invalidate()` so Refresh and zone switches
+    /// re-probe them, but `runKeyAuthCheck` is a real authentication attempt
+    /// against the server — re-running it on every Refresh would hit the
+    /// server's auth log (and any fail2ban-style rate limiter) far more than
+    /// a reachability check should. It's computed at most once per host per
+    /// app session; `invalidateKeyAuth` is the only way to force a recheck.
+    private var keyAuthStates: [String: KeyAuthState] = [:]
     private(set) var epoch: Int = 0
 
     func status(for key: String) -> ReachStatus? {
@@ -60,6 +76,19 @@ final class ReachabilityCache {
     func keyState(for host: SSHHost) -> HostKeyState {
         guard let cacheKey = Self.cacheKey(for: host) else { return .unchecked }
         return keyStatus(for: cacheKey)
+    }
+
+    func keyAuthState(for host: SSHHost) -> KeyAuthState {
+        guard let cacheKey = Self.cacheKey(for: host) else { return .unchecked }
+        return keyAuthStates[cacheKey] ?? .unchecked
+    }
+
+    /// Forces a recheck next time `runKeyAuthCheck` runs for this host — used
+    /// after the user runs "Set Up Key Authentication" so the indicator
+    /// updates without waiting for the next natural probe cycle.
+    func invalidateKeyAuth(for host: SSHHost) {
+        guard let cacheKey = Self.cacheKey(for: host) else { return }
+        keyAuthStates.removeValue(forKey: cacheKey)
     }
 
     func clear() {
@@ -107,6 +136,7 @@ final class ReachabilityCache {
         set(success ? .reachable : .unreachable, for: cacheKey)
         if success {
             await runKeyCheck(for: host)
+            await runKeyAuthCheck(for: host)
         }
     }
 
@@ -127,5 +157,26 @@ final class ReachabilityCache {
         case .ok: setKeyStatus(.ok, for: cacheKey)
         case .unknown, .indeterminate: setKeyStatus(.ok, for: cacheKey)
         }
+    }
+
+    /// Whether the host would let you in on key auth alone (`KeyAuthChecker`).
+    /// Only runs for reachable hosts, and only once per host per app session —
+    /// see the `keyAuthStates` doc comment for why it isn't epoch-invalidated
+    /// like `runProbe`/`runKeyCheck`. Safe to call directly (e.g. right after
+    /// the user finishes "Set Up Key Authentication") as well as from
+    /// `runProbe`'s success branch: the reachability guard below makes it a
+    /// no-op for a host that isn't currently known-reachable.
+    func runKeyAuthCheck(for host: SSHHost) async {
+        guard let alias = host.aliases.first, !alias.isEmpty,
+              let cacheKey = Self.cacheKey(for: host),
+              status(for: cacheKey) == .reachable else { return }
+        switch keyAuthStates[cacheKey] ?? .unchecked {
+        case .unchecked: break
+        default: return
+        }
+        keyAuthStates[cacheKey] = .checking
+        let passwordless = await KeyAuthChecker.check(alias: alias)
+        guard !Task.isCancelled else { return }
+        keyAuthStates[cacheKey] = passwordless ? .passwordless : .needsSetup
     }
 }

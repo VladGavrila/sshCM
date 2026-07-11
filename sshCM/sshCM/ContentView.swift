@@ -34,10 +34,15 @@ struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
 
     @State private var showingAdd = false
+    @State private var showingDiscover = false
     @State private var hostBeingEdited: SSHHost?
     @State private var hostPendingDeletion: SSHHost?
     @State private var currentSeedRequest: SeedRequest?
     @State private var pendingSeedRequests: [SeedRequest] = []
+    /// The host behind `currentSeedRequest`, stashed because `onDismiss` fires
+    /// after SwiftUI has already nil'd the `.sheet(item:)` binding — see
+    /// `handleSeedDismiss`.
+    @State private var seedPresentedHost: SSHHost?
     @State private var searchText: String = ""
     @State private var connectError: String?
     @State private var hostKeyWarning: HostConnector.KeyWarning?
@@ -147,7 +152,11 @@ struct ContentView: View {
                 .environment(tagsStore)
                 .environment(zonesStore)
             }
-            .sheet(item: $currentSeedRequest, onDismiss: dequeueNextSeed) { request in
+            .sheet(isPresented: $showingDiscover) {
+                DiscoverHostsSheet()
+                    .environment(store)
+            }
+            .sheet(item: $currentSeedRequest, onDismiss: handleSeedDismiss) { request in
                 SeedKeySheet(host: request.host, userOverride: request.userOverride)
             }
             .sheet(isPresented: $showingExport) {
@@ -430,17 +439,6 @@ struct ContentView: View {
             .navigationTitle("SSH Config Manager")
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    Button {
-                        showOnlyReachable.toggle()
-                    } label: {
-                        Label(
-                            showOnlyReachable ? "Show All Hosts" : "Show Only Reachable",
-                            systemImage: showOnlyReachable ? "circle.fill" : "circle.dotted"
-                        )
-                    }
-                    .tint(showOnlyReachable ? .green : nil)
-                    .help(showOnlyReachable ? "Show all hosts" : "Show only reachable hosts")
-
                     if !zonesStore.zones.isEmpty {
                         Menu {
                             Button {
@@ -465,12 +463,25 @@ struct ContentView: View {
                                 }
                             }
                         } label: {
-                            Label(activeZone ?? "Zone", systemImage: "globe")
+                            Label(activeZone ?? "Zone", systemImage: "network")
                         }
                         .tint(activeZone != nil ? .green : nil)
                         .help(activeZone.map { "Filtering to zone \"\($0)\"" } ?? "Filter hosts by zone")
                     }
 
+                    Button {
+                        showOnlyReachable.toggle()
+                    } label: {
+                        Label(
+                            showOnlyReachable ? "Show All Hosts" : "Show Only Reachable",
+                            systemImage: showOnlyReachable ? "circle.fill" : "circle.dotted"
+                        )
+                    }
+                    .tint(showOnlyReachable ? .green : nil)
+                    .help(showOnlyReachable ? "Show all hosts" : "Show only reachable hosts")
+                }
+
+                ToolbarItemGroup(placement: .primaryAction) {
                     Button {
                         viewModeRaw = (viewMode == .card ? HostsViewMode.list : .card).rawValue
                     } label: {
@@ -488,7 +499,9 @@ struct ContentView: View {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }
                     .help("Reload ~/.ssh/config and re-check reachability")
+                }
 
+                ToolbarItemGroup(placement: .primaryAction) {
                     Menu {
                         Button {
                             showingExport = true
@@ -508,6 +521,13 @@ struct ContentView: View {
                         Label("Import or Export", systemImage: "square.and.arrow.up.on.square")
                     }
                     .help("Export or import hosts as a portable JSON file")
+
+                    Button {
+                        showingDiscover = true
+                    } label: {
+                        Label("Discover", systemImage: "dot.radiowaves.left.and.right")
+                    }
+                    .help("Scan the local network for hosts with SSH open")
 
                     Button {
                         showingAdd = true
@@ -564,7 +584,25 @@ struct ContentView: View {
 
     private func dequeueNextSeed() {
         guard currentSeedRequest == nil, !pendingSeedRequests.isEmpty else { return }
-        currentSeedRequest = pendingSeedRequests.removeFirst()
+        let next = pendingSeedRequests.removeFirst()
+        seedPresentedHost = next.host
+        currentSeedRequest = next
+    }
+
+    /// Runs after a "Set Up Key Authentication" sheet closes — regardless of
+    /// whether it succeeded, failed, or was dismissed with "Not Now". The
+    /// cached key-auth status for that host is stale either way (the user
+    /// just took an action that could change it), so force one fresh check
+    /// rather than leaving a possibly-outdated badge until the next natural
+    /// probe cycle. `runKeyAuthCheck` no-ops for a host that isn't currently
+    /// known-reachable, so this is harmless to call unconditionally.
+    private func handleSeedDismiss() {
+        if let host = seedPresentedHost {
+            reachCache.invalidateKeyAuth(for: host)
+            Task { await reachCache.runKeyAuthCheck(for: host) }
+        }
+        seedPresentedHost = nil
+        dequeueNextSeed()
     }
 
     private func connect(
@@ -742,7 +780,8 @@ struct ContentView: View {
                             onConnectVNC: { connectVNC(to: host) },
                             onConnectSMB: { connectSMB(to: host) },
                             onSetZone: { setZone($0, for: host) },
-                            onToggleFavorite: { toggleFavorite(host) }
+                            onToggleFavorite: { toggleFavorite(host) },
+                            onSetupKeyAuth: { enqueueSeed(host: host, userOverride: nil) }
                         )
                     }
                 }
@@ -767,7 +806,8 @@ struct ContentView: View {
                     onConnectVNC: { connectVNC(to: host) },
                     onConnectSMB: { connectSMB(to: host) },
                     onSetZone: { setZone($0, for: host) },
-                    onToggleFavorite: { toggleFavorite(host) }
+                    onToggleFavorite: { toggleFavorite(host) },
+                    onSetupKeyAuth: { enqueueSeed(host: host, userOverride: nil) }
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.visible)

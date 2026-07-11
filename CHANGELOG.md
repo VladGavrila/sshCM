@@ -2,6 +2,12 @@
 
 All notable changes to **sshCM** ("SSH Config Manager") are documented here, newest first. Each entry corresponds to a [GitHub release](https://github.com/VladGavrila/sshCM/releases).
 
+## [2.1.0] — 2026-07-10
+
+### Added
+- **Discover hosts on your network.** A new **Discover** button in the toolbar scans your local network for machines with SSH (port 22) open, so you can add them without hunting for IP addresses. sshCM auto-detects your subnet and prefills the range (e.g. `192.168.1.0/24`), which you can edit before scanning — a CIDR, a start–end range (`192.168.1.1-192.168.1.50`), the last-octet shorthand (`192.168.1.1-50`), or a single IP. Each responder is best-effort reverse-DNS-named to suggest a friendly alias (falling back to the IP when there's no name), with live alias validation and duplicate detection against your existing hosts; any already in your config are flagged. A "Connect as" field (prefilled with your Mac's account name) sets the user applied to every host you add, same as the required User field in the Add Host form. Pick the ones you want and **Add Selected** writes them to `~/.ssh/config` in one step (a single `/etc/hosts` update if that feature is enabled). The scan probes in a bounded concurrency window with a short per-host timeout, and stops the moment you close the sheet.
+- **See at a glance which hosts still need key authentication set up.** A reachable host is now checked once per launch to see whether it would let you in on key auth alone; if not, an orange key badge appears on its card/row (and a "Set Up Key Authentication…" entry in its right-click menu) so you can fix it in one click, without having to open Edit first. The check is a real but harmless, non-interactive SSH attempt (it can never prompt for a password or trust an unknown host key) and only ever runs once per host per launch — Refresh and zone switches don't repeat it — so it doesn't add noise to a server's auth logs beyond what a single check requires.
+
 ## [2.0.0] — 2026-07-09
 
 ### Added
@@ -242,6 +248,7 @@ All notable changes to **sshCM** ("SSH Config Manager") are documented here, new
   - **Configure terminal** in Settings (defaults to Terminal.app).
 - Config handling preserves structure: atomic `0600` writes, `~/.ssh` created `0700` if missing, and comments, blank lines, global directives, `Include`/`Match` blocks, and unknown keys round-trip verbatim.
 
+[2.1.0]: https://github.com/VladGavrila/sshCM/releases/tag/v2.1.0
 [2.0.0]: https://github.com/VladGavrila/sshCM/releases/tag/v2.0.0
 [1.16.1]: https://github.com/VladGavrila/sshCM/releases/tag/v1.16.1
 [1.16.0]: https://github.com/VladGavrila/sshCM/releases/tag/v1.16.0

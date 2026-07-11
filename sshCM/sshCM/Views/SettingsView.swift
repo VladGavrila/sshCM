@@ -12,7 +12,7 @@ struct SettingsView: View {
             TagsSettingsTab()
                 .tabItem { Label("Tags", systemImage: "tag") }
             ZonesSettingsTab()
-                .tabItem { Label("Zones", systemImage: "globe") }
+                .tabItem { Label("Zones", systemImage: "network") }
             UpdatesSettingsTab()
                 .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
             AdvancedSettingsTab()

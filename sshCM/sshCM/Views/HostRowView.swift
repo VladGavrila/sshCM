@@ -13,6 +13,7 @@ struct HostRowView: View {
     let onConnectSMB: () -> Void
     let onSetZone: (String?) -> Void
     let onToggleFavorite: () -> Void
+    let onSetupKeyAuth: () -> Void
 
     @Environment(ReachabilityCache.self) private var reachCache
     @Environment(HostKeyBypassStore.self) private var bypassStore
@@ -44,6 +45,10 @@ struct HostRowView: View {
 
     private var hostKeyBypassed: Bool {
         host.aliases.first.map { bypassStore.isBypassed($0) } ?? false
+    }
+
+    private var needsKeyAuthSetup: Bool {
+        reachCache.keyAuthState(for: host) == .needsSetup
     }
 
     /// A host must have a primary alias to be favoritable — that's how it's
@@ -135,6 +140,15 @@ struct HostRowView: View {
             }
 
             HStack(spacing: 6) {
+                if needsKeyAuthSetup {
+                    Button(action: onSetupKeyAuth) {
+                        Image(systemName: "key.horizontal.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("This host currently requires a password — click to set up key authentication")
+                }
+
                 Button(role: .destructive, action: onDelete) {
                     Image(systemName: "trash")
                 }
@@ -175,6 +189,9 @@ struct HostRowView: View {
             }
             Button(role: .destructive, action: onDelete) {
                 Label("Remove", systemImage: "trash")
+            }
+            Button(action: onSetupKeyAuth) {
+                Label("Set Up Key Authentication…", systemImage: "key.horizontal.fill")
             }
             if !zonesStore.zones.isEmpty {
                 Divider()

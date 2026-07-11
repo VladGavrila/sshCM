@@ -22,7 +22,8 @@ let package = Package(
                 "HostSearchScorer.swift",
                 "HostsFileBlock.swift",
                 "RemoteAccessApp.swift",
-                "ZoneCatalog.swift"
+                "ZoneCatalog.swift",
+                "SubnetScan.swift"
             ]
         ),
         .target(
